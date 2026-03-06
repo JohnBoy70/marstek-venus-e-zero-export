@@ -1,5 +1,5 @@
 blueprint:
-  name: Marstek Venus E – Zero Export Controller V3 Debug
+  name: Marstek Venus E – Zero Export Controller V3.1 Debug
   description: >
     Zero-export controller for Marstek Venus E with:
       - charge / discharge / hold logic
@@ -11,6 +11,7 @@ blueprint:
       - debug helpers
       - optional grid smoothing
       - optional night profile with separate max discharge power
+      - optional block of charging when PV power is too low
 
   domain: automation
   homeassistant:
@@ -38,6 +39,7 @@ blueprint:
 
     pv_power_sensor:
       name: PV power sensor
+      description: Summed PV power in watts from both balcony plants
       selector:
         entity:
           domain: sensor
@@ -261,6 +263,24 @@ blueprint:
           step: 10
           unit_of_measurement: W
 
+    block_charge_without_pv:
+      name: Block charging when PV is too low
+      description: Prevent charging from grid when there is not enough PV power
+      default: true
+      selector:
+        boolean: {}
+
+    minimum_pv_for_charge:
+      name: Minimum PV power for charging
+      description: Charging is only allowed when PV power is at or above this threshold
+      default: 100
+      selector:
+        number:
+          min: 0
+          max: 3000
+          step: 10
+          unit_of_measurement: W
+
     enable_night_profile:
       name: Enable night profile
       description: Use different max discharge power at night / evening
@@ -337,6 +357,8 @@ action:
       mode_cooldown_value: !input mode_cooldown_seconds
       evening_dependency_enabled: !input enable_evening_discharge_dependency
       pv_evening_threshold_value: !input pv_evening_threshold
+      block_charge_without_pv_value: !input block_charge_without_pv
+      minimum_pv_for_charge_value: !input minimum_pv_for_charge
 
       enable_night_profile_value: !input enable_night_profile
       night_profile_discharge_power_value: !input night_profile_discharge_power
@@ -407,6 +429,15 @@ action:
           false
         {% endif %}
 
+      charge_allowed: >
+        {% if not block_charge_without_pv_value %}
+          true
+        {% elif pv_power >= minimum_pv_for_charge_value %}
+          true
+        {% else %}
+          false
+        {% endif %}
+
       night_profile_active: >
         {% if not enable_night_profile_value %}
           false
@@ -445,8 +476,10 @@ action:
           discharge
         {% elif delta >= discharge_start_value and not evening_ok_for_discharge %}
           hold
-        {% elif delta <= (0 - charge_start_value) %}
+        {% elif delta <= (0 - charge_start_value) and charge_allowed %}
           charge
+        {% elif delta <= (0 - charge_start_value) and not charge_allowed %}
+          hold
         {% elif abs_delta <= deadband_value %}
           hold
         {% else %}
@@ -502,6 +535,8 @@ action:
           soc_min_block_discharge
         {% elif soc >= soc_max_charge_value and delta < 0 %}
           soc_max_block_charge
+        {% elif delta <= (0 - charge_start_value) and not charge_allowed %}
+          charge_blocked_low_pv
         {% elif cooldown_active %}
           cooldown_active
         {% elif final_mode == 'hold' and delta >= discharge_start_value and not evening_ok_for_discharge %}
