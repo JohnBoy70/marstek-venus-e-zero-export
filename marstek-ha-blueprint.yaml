@@ -1,5 +1,5 @@
 blueprint:
-  name: Marstek Venus E – Zero Export Controller V4
+  name: Marstek Venus E – Zero Export Controller V4.1
   description: >
     Zero-export controller for Marstek Venus E with real device control.
     Features:
@@ -8,7 +8,8 @@ blueprint:
       - sets action mode to "Halt", "Laden", "Entladen"
       - charge/discharge power control
       - SOC protection
-      - cooldown
+      - mode cooldown
+      - hysteresis via separate start/stop thresholds
       - optional PV-based evening discharge
       - optional block charging without PV
       - optional grid smoothing
@@ -54,7 +55,9 @@ blueprint:
 
     pv_power_sensor:
       name: PV power sensor
-      description: Summed PV power from both balcony systems
+      description: >
+        Summed PV power from both balcony systems in watts.
+        This sensor should ideally return 0 instead of unknown at night.
       selector:
         entity:
           domain: sensor
@@ -71,93 +74,123 @@ blueprint:
 
     action_select_entity:
       name: Marstek force mode select
-      description: Entity with options Halt / Laden / Entladen
+      description: >
+        Select entity with options Halt / Laden / Entladen.
+        The automation writes the desired operating action here.
       selector:
         entity:
           domain: select
 
     rs485_switch_entity:
       name: RS485 control switch
+      description: >
+        Switch entity used to enable external RS485 control.
       selector:
         entity:
           domain: switch
 
     charge_power_entity:
       name: Charge power entity
+      description: >
+        Number entity controlling the battery charging power in watts.
       selector:
         entity:
           domain: number
 
     discharge_power_entity:
       name: Discharge power entity
+      description: >
+        Number entity controlling the battery discharging power in watts.
       selector:
         entity:
           domain: number
 
     max_charge_power_entity:
       name: Max charge power entity
+      description: >
+        Number entity for maximum allowed charging power.
       selector:
         entity:
           domain: number
 
     max_discharge_power_entity:
       name: Max discharge power entity
+      description: >
+        Number entity for maximum allowed discharging power.
       selector:
         entity:
           domain: number
 
     max_soc_entity:
       name: Max SOC entity
+      description: >
+        Number entity for the battery maximum SOC limit.
       selector:
         entity:
           domain: number
 
     mode_helper:
       name: Debug helper - final mode
-      description: input_select with options hold, charge, discharge
+      description: >
+        input_select helper with the exact options:
+        hold, charge, discharge
       selector:
         entity:
           domain: input_select
 
     last_mode_change_helper:
       name: Helper - last mode change
-      description: input_datetime with date and time enabled
+      description: >
+        input_datetime helper with date and time enabled.
       selector:
         entity:
           domain: input_datetime
 
     debug_delta_helper:
       name: Debug helper - delta
+      description: >
+        input_number helper used to store the effective controller delta.
       selector:
         entity:
           domain: input_number
 
     debug_reason_helper:
       name: Debug helper - reason / Sperrgrund
+      description: >
+        input_text helper used to store the current controller reason.
       selector:
         entity:
           domain: input_text
 
     debug_cooldown_helper:
       name: Debug helper - cooldown active
+      description: >
+        input_boolean helper indicating whether mode cooldown is active.
       selector:
         entity:
           domain: input_boolean
 
     use_grid_smoothing:
       name: Enable grid smoothing
+      description: >
+        If enabled, an EMA-smoothed grid power value is used for control.
       default: false
       selector:
         boolean: {}
 
     smoothed_grid_helper:
       name: Helper - smoothed grid power
+      description: >
+        input_number helper used to store the smoothed grid power value.
       selector:
         entity:
           domain: input_number
 
     smoothing_factor_percent:
       name: Smoothing factor
+      description: >
+        Percentage of NEW value in EMA smoothing.
+        Example: 30 = 30% new value + 70% previous smoothed value.
       default: 30
       selector:
         number:
@@ -168,6 +201,8 @@ blueprint:
 
     grid_bias:
       name: Grid bias
+      description: >
+        Positive bias keeps slight grid import to reduce unwanted export.
       default: 20
       selector:
         number:
@@ -178,6 +213,8 @@ blueprint:
 
     deadband:
       name: Deadband
+      description: >
+        Hold zone around zero. Inside this band the controller prefers hold.
       default: 40
       selector:
         number:
@@ -188,7 +225,21 @@ blueprint:
 
     charge_start_threshold:
       name: Charge start threshold
+      description: >
+        Export level required to enter charge mode.
       default: 80
+      selector:
+        number:
+          min: 0
+          max: 500
+          step: 1
+          unit_of_measurement: W
+
+    charge_stop_threshold:
+      name: Charge stop threshold
+      description: >
+        Export level below which the controller leaves charge mode and returns to hold.
+      default: 30
       selector:
         number:
           min: 0
@@ -198,7 +249,21 @@ blueprint:
 
     discharge_start_threshold:
       name: Discharge start threshold
+      description: >
+        Import level required to enter discharge mode.
       default: 80
+      selector:
+        number:
+          min: 0
+          max: 500
+          step: 1
+          unit_of_measurement: W
+
+    discharge_stop_threshold:
+      name: Discharge stop threshold
+      description: >
+        Import level below which the controller leaves discharge mode and returns to hold.
+      default: 30
       selector:
         number:
           min: 0
@@ -208,6 +273,8 @@ blueprint:
 
     soc_min_discharge:
       name: Minimum SOC for discharge
+      description: >
+        Discharge is blocked below this SOC.
       default: 20
       selector:
         number:
@@ -218,6 +285,8 @@ blueprint:
 
     soc_max_charge:
       name: Maximum SOC for charge
+      description: >
+        Charge is blocked above this SOC.
       default: 95
       selector:
         number:
@@ -228,6 +297,8 @@ blueprint:
 
     fallback_max_charge_power:
       name: Fallback max charge power
+      description: >
+        Used if the selected max charge power entity is unavailable.
       default: 1200
       selector:
         number:
@@ -238,6 +309,8 @@ blueprint:
 
     fallback_max_discharge_power:
       name: Fallback max discharge power
+      description: >
+        Used if the selected max discharge power entity is unavailable.
       default: 800
       selector:
         number:
@@ -248,6 +321,8 @@ blueprint:
 
     ramp_limit:
       name: Ramp limit
+      description: >
+        Maximum power change per cycle.
       default: 100
       selector:
         number:
@@ -258,6 +333,8 @@ blueprint:
 
     min_write_delta:
       name: Minimum write delta
+      description: >
+        Only write a new value if the difference is at least this large.
       default: 20
       selector:
         number:
@@ -268,6 +345,8 @@ blueprint:
 
     mode_cooldown_seconds:
       name: Mode cooldown
+      description: >
+        Minimum time between direct charge <-> discharge transitions.
       default: 20
       selector:
         number:
@@ -278,12 +357,17 @@ blueprint:
 
     enable_evening_discharge_dependency:
       name: Enable PV dependency for evening discharge
+      description: >
+        If enabled, discharge is only allowed when PV is low enough
+        or the sun is below the horizon.
       default: true
       selector:
         boolean: {}
 
     pv_evening_threshold:
       name: PV evening threshold
+      description: >
+        Discharge is allowed when PV power is at or below this value.
       default: 80
       selector:
         number:
@@ -294,12 +378,16 @@ blueprint:
 
     block_charge_without_pv:
       name: Block charging when PV is too low
+      description: >
+        Prevent charging from the grid if PV power is too low.
       default: true
       selector:
         boolean: {}
 
     minimum_pv_for_charge:
       name: Minimum PV power for charging
+      description: >
+        Charge is only allowed when PV power is at or above this threshold.
       default: 100
       selector:
         number:
@@ -310,12 +398,16 @@ blueprint:
 
     enable_night_profile:
       name: Enable night profile
+      description: >
+        If enabled, discharge power may be limited during low-PV/night periods.
       default: false
       selector:
         boolean: {}
 
     night_profile_discharge_power:
       name: Night profile max discharge power
+      description: >
+        Maximum discharge power used while the night profile is active.
       default: 400
       selector:
         number:
@@ -326,12 +418,16 @@ blueprint:
 
     night_profile_use_sun:
       name: Night profile based on sun
+      description: >
+        If enabled, the night profile becomes active when the sun is below the horizon.
       default: true
       selector:
         boolean: {}
 
     night_profile_pv_threshold:
       name: Night profile PV threshold
+      description: >
+        The night profile may also become active when PV power is at or below this value.
       default: 80
       selector:
         number:
@@ -373,7 +469,9 @@ action:
       grid_bias_value: !input grid_bias
       deadband_value: !input deadband
       charge_start_value: !input charge_start_threshold
+      charge_stop_value: !input charge_stop_threshold
       discharge_start_value: !input discharge_start_threshold
+      discharge_stop_value: !input discharge_stop_threshold
       soc_min_value: !input soc_min_discharge
       soc_max_charge_value: !input soc_max_charge
       fallback_max_charge_value: !input fallback_max_charge_power
@@ -419,8 +517,7 @@ action:
 
       sensor_valid: >
         {{ states(grid_entity) not in ['unknown','unavailable','none','']
-           and states(soc_entity) not in ['unknown','unavailable','none','']
-           and states(pv_entity) not in ['unknown','unavailable','none',''] }}
+           and states(soc_entity) not in ['unknown','unavailable','none',''] }}
 
       smoothing_alpha: "{{ (smoothing_factor_value | float(30)) / 100 }}"
       calculated_smoothed_grid: >
@@ -496,18 +593,39 @@ action:
       desired_mode: >
         {% if safety_hold %}
           hold
-        {% elif delta >= discharge_start_value and evening_ok_for_discharge %}
-          discharge
-        {% elif delta >= discharge_start_value and not evening_ok_for_discharge %}
-          hold
-        {% elif delta <= (0 - charge_start_value) and charge_allowed %}
-          charge
-        {% elif delta <= (0 - charge_start_value) and not charge_allowed %}
-          hold
-        {% elif abs_delta <= deadband_value %}
-          hold
+
+        {% elif current_mode == 'charge' %}
+          {% if delta <= (0 - charge_stop_value) and charge_allowed %}
+            charge
+          {% elif abs_delta <= deadband_value %}
+            hold
+          {% else %}
+            hold
+          {% endif %}
+
+        {% elif current_mode == 'discharge' %}
+          {% if delta >= discharge_stop_value and evening_ok_for_discharge %}
+            discharge
+          {% elif abs_delta <= deadband_value %}
+            hold
+          {% else %}
+            hold
+          {% endif %}
+
         {% else %}
-          {{ current_mode }}
+          {% if delta >= discharge_start_value and evening_ok_for_discharge %}
+            discharge
+          {% elif delta >= discharge_start_value and not evening_ok_for_discharge %}
+            hold
+          {% elif delta <= (0 - charge_start_value) and charge_allowed %}
+            charge
+          {% elif delta <= (0 - charge_start_value) and not charge_allowed %}
+            hold
+          {% elif abs_delta <= deadband_value %}
+            hold
+          {% else %}
+            hold
+          {% endif %}
         {% endif %}
 
       last_mode_change_ts: >
@@ -520,6 +638,7 @@ action:
 
       now_ts: "{{ as_timestamp(now()) | float(0) }}"
       cooldown_elapsed: "{{ (now_ts - last_mode_change_ts) >= (mode_cooldown_value | float(0)) }}"
+
       cooldown_active: >
         {% if safety_hold %}
           false
@@ -562,8 +681,10 @@ action:
       reason_text: >
         {% if not enabled %}
           disabled
-        {% elif not sensor_valid %}
-          sensor_invalid
+        {% elif states(grid_entity) in ['unknown','unavailable','none',''] %}
+          grid_invalid
+        {% elif states(soc_entity) in ['unknown','unavailable','none',''] %}
+          soc_invalid
         {% elif soc <= soc_min_value and delta > 0 %}
           soc_min_block_discharge
         {% elif soc >= soc_max_charge_value and delta < 0 %}
@@ -685,7 +806,7 @@ action:
   - choose:
       - conditions:
           - condition: template
-            value_template: "{{ not is_state(rs485_entity, 'on') }}"
+            value_template: "{{ enabled and not is_state(rs485_entity, 'on') }}"
         sequence:
           - service: switch.turn_on
             target:
@@ -694,7 +815,7 @@ action:
   - choose:
       - conditions:
           - condition: template
-            value_template: "{{ states(strategy_entity) != 'Manuell' }}"
+            value_template: "{{ enabled and states(strategy_entity) != 'Manuell' }}"
         sequence:
           - service: select.select_option
             target:
@@ -705,7 +826,7 @@ action:
   - choose:
       - conditions:
           - condition: template
-            value_template: "{{ states(action_entity) != device_force_mode }}"
+            value_template: "{{ enabled and states(action_entity) != device_force_mode }}"
         sequence:
           - service: select.select_option
             target:
