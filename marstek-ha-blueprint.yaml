@@ -1,17 +1,19 @@
 blueprint:
-  name: Marstek Venus E – Zero Export Controller V3.1 Debug
+  name: Marstek Venus E – Zero Export Controller V4
   description: >
-    Zero-export controller for Marstek Venus E with:
-      - charge / discharge / hold logic
+    Zero-export controller for Marstek Venus E with real device control.
+    Features:
+      - controls RS485 switch
+      - sets Marstek mode to "Manuell"
+      - sets action mode to "Halt", "Laden", "Entladen"
+      - charge/discharge power control
       - SOC protection
-      - ramp limiting
-      - minimum write delta
-      - mode cooldown
-      - optional evening-only discharge dependency
-      - debug helpers
+      - cooldown
+      - optional PV-based evening discharge
+      - optional block charging without PV
       - optional grid smoothing
-      - optional night profile with separate max discharge power
-      - optional block of charging when PV power is too low
+      - optional night profile
+      - debug helpers
 
   domain: automation
   homeassistant:
@@ -39,10 +41,30 @@ blueprint:
 
     pv_power_sensor:
       name: PV power sensor
-      description: Summed PV power in watts from both balcony plants
+      description: Summed PV power from both balcony systems
       selector:
         entity:
           domain: sensor
+
+    strategy_select_entity:
+      name: Marstek strategy select
+      description: Entity with options Manuell / Eigenverbrauch / KI-Optimierung
+      selector:
+        entity:
+          domain: select
+
+    action_select_entity:
+      name: Marstek force mode select
+      description: Entity with options Halt / Laden / Entladen
+      selector:
+        entity:
+          domain: select
+
+    rs485_switch_entity:
+      name: RS485 control switch
+      selector:
+        entity:
+          domain: switch
 
     charge_power_entity:
       name: Charge power entity
@@ -90,21 +112,18 @@ blueprint:
 
     debug_delta_helper:
       name: Debug helper - delta
-      description: input_number for effective delta
       selector:
         entity:
           domain: input_number
 
     debug_reason_helper:
       name: Debug helper - reason / Sperrgrund
-      description: input_text helper
       selector:
         entity:
           domain: input_text
 
     debug_cooldown_helper:
       name: Debug helper - cooldown active
-      description: input_boolean helper
       selector:
         entity:
           domain: input_boolean
@@ -117,16 +136,12 @@ blueprint:
 
     smoothed_grid_helper:
       name: Helper - smoothed grid power
-      description: input_number helper for smoothed grid power
       selector:
         entity:
           domain: input_number
 
     smoothing_factor_percent:
       name: Smoothing factor
-      description: >
-        Percentage of NEW value in EMA smoothing.
-        Example: 30 = 30% new value + 70% previous smoothed value.
       default: 30
       selector:
         number:
@@ -137,7 +152,6 @@ blueprint:
 
     grid_bias:
       name: Grid bias
-      description: Positive bias keeps slight grid import to avoid accidental export
       default: 20
       selector:
         number:
@@ -148,7 +162,6 @@ blueprint:
 
     deadband:
       name: Deadband
-      description: Hold zone around zero
       default: 40
       selector:
         number:
@@ -265,14 +278,12 @@ blueprint:
 
     block_charge_without_pv:
       name: Block charging when PV is too low
-      description: Prevent charging from grid when there is not enough PV power
       default: true
       selector:
         boolean: {}
 
     minimum_pv_for_charge:
       name: Minimum PV power for charging
-      description: Charging is only allowed when PV power is at or above this threshold
       default: 100
       selector:
         number:
@@ -283,7 +294,6 @@ blueprint:
 
     enable_night_profile:
       name: Enable night profile
-      description: Use different max discharge power at night / evening
       default: false
       selector:
         boolean: {}
@@ -300,14 +310,12 @@ blueprint:
 
     night_profile_use_sun:
       name: Night profile based on sun
-      description: If enabled, night profile becomes active when sun is below horizon
       default: true
       selector:
         boolean: {}
 
     night_profile_pv_threshold:
       name: Night profile PV threshold
-      description: Night profile may also activate when PV is below this threshold
       default: 80
       selector:
         number:
@@ -329,6 +337,9 @@ action:
       grid_entity: !input grid_power_sensor
       soc_entity: !input battery_soc_sensor
       pv_entity: !input pv_power_sensor
+      strategy_entity: !input strategy_select_entity
+      action_entity: !input action_select_entity
+      rs485_entity: !input rs485_switch_entity
       charge_entity: !input charge_power_entity
       discharge_entity: !input discharge_power_entity
       max_charge_entity: !input max_charge_power_entity
@@ -343,7 +354,6 @@ action:
 
       use_grid_smoothing_value: !input use_grid_smoothing
       smoothing_factor_value: !input smoothing_factor_percent
-
       grid_bias_value: !input grid_bias
       deadband_value: !input deadband
       charge_start_value: !input charge_start_threshold
@@ -359,7 +369,6 @@ action:
       pv_evening_threshold_value: !input pv_evening_threshold
       block_charge_without_pv_value: !input block_charge_without_pv
       minimum_pv_for_charge_value: !input minimum_pv_for_charge
-
       enable_night_profile_value: !input enable_night_profile
       night_profile_discharge_power_value: !input night_profile_discharge_power
       night_profile_use_sun_value: !input night_profile_use_sun
@@ -415,7 +424,6 @@ action:
 
       delta: "{{ (effective_grid_power | float(0)) - (grid_bias_value | float(0)) }}"
       abs_delta: "{{ ((effective_grid_power | float(0)) - (grid_bias_value | float(0))) | abs }}"
-
       sun_is_down: "{{ is_state('sun.sun', 'below_horizon') }}"
 
       evening_ok_for_discharge: >
@@ -524,6 +532,15 @@ action:
           {{ desired_mode }}
         {% else %}
           {{ current_mode }}
+        {% endif %}
+
+      device_force_mode: >
+        {% if final_mode == 'charge' %}
+          Laden
+        {% elif final_mode == 'discharge' %}
+          Entladen
+        {% else %}
+          Halt
         {% endif %}
 
       reason_text: >
@@ -652,6 +669,37 @@ action:
   - choose:
       - conditions:
           - condition: template
+            value_template: "{{ not is_state(rs485_entity, 'on') }}"
+        sequence:
+          - service: switch.turn_on
+            target:
+              entity_id: !input rs485_switch_entity
+
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ states(strategy_entity) != 'Manuell' }}"
+        sequence:
+          - service: select.select_option
+            target:
+              entity_id: !input strategy_select_entity
+            data:
+              option: "Manuell"
+
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ states(action_entity) != device_force_mode }}"
+        sequence:
+          - service: select.select_option
+            target:
+              entity_id: !input action_select_entity
+            data:
+              option: "{{ device_force_mode }}"
+
+  - choose:
+      - conditions:
+          - condition: template
             value_template: "{{ states(mode_entity) != final_mode }}"
         sequence:
           - service: input_select.select_option
@@ -659,7 +707,6 @@ action:
               entity_id: !input mode_helper
             data:
               option: "{{ final_mode }}"
-
           - service: input_datetime.set_datetime
             target:
               entity_id: !input last_mode_change_helper
