@@ -22,19 +22,32 @@ blueprint:
   input:
     enabled_entity:
       name: Enable control
+      description: >
+        Master switch for the controller.
+        When ON the automation actively controls the Marstek system
+        (RS485, mode and charge/discharge power).
+        When OFF the automation stops sending commands and the device
+        can operate normally using its internal logic.
       selector:
         entity:
           domain: input_boolean
 
     grid_power_sensor:
       name: Raw grid power sensor
-      description: Positive = grid import, negative = grid export
+      description: >
+        Instantaneous grid power measurement in watts.
+        Positive values must represent grid import (house consuming power).
+        Negative values must represent grid export (feeding power to grid).
+        This should be the raw, unfiltered value from the grid meter.
       selector:
         entity:
           domain: sensor
 
     battery_soc_sensor:
       name: Battery SOC sensor
+      description: >
+        Sensor that reports the current battery State of Charge (SOC) in percent.
+        This value is used to prevent deep discharge and overcharging.
       selector:
         entity:
           domain: sensor
@@ -48,7 +61,10 @@ blueprint:
 
     strategy_select_entity:
       name: Marstek strategy select
-      description: Entity with options Manuell / Eigenverbrauch / KI-Optimierung
+      description: >
+        Marstek operating mode selector.
+        The automation sets this to "Manuell" so Home Assistant can control
+        charge and discharge behaviour.
       selector:
         entity:
           domain: select
