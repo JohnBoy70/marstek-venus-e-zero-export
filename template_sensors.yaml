@@ -1,0 +1,57 @@
+template:
+  - sensor:
+      - name: "Marstek Zero Export Status"
+        unique_id: marstek_zero_export_status
+        state: >
+          {% set mode = states('input_select.marstek_zero_export_mode') %}
+          {% set reason = states('input_text.marstek_zero_export_reason') %}
+          {{ mode ~ ' | ' ~ reason }}
+
+      - name: "Marstek Zero Export Delta Rounded"
+        unique_id: marstek_zero_export_delta_rounded
+        unit_of_measurement: "W"
+        device_class: power
+        state_class: measurement
+        state: >
+          {{ states('input_number.marstek_zero_export_debug_delta') | float(0) | round(0) }}
+
+      - name: "Marstek Zero Export Effective Grid Rounded"
+        unique_id: marstek_zero_export_effective_grid_rounded
+        unit_of_measurement: "W"
+        device_class: power
+        state_class: measurement
+        state: >
+          {{ states('input_number.marstek_zero_export_effective_grid') | float(0) | round(0) }}
+
+      - name: "Marstek Zero Export Smoothed Grid Rounded"
+        unique_id: marstek_zero_export_smoothed_grid_rounded
+        unit_of_measurement: "W"
+        device_class: power
+        state_class: measurement
+        state: >
+          {{ states('input_number.marstek_zero_export_smoothed_grid') | float(0) | round(0) }}
+
+      - name: "Marstek Zero Export Last Change Age"
+        unique_id: marstek_zero_export_last_change_age
+        unit_of_measurement: "s"
+        state: >
+          {% set ts = states('input_datetime.marstek_zero_export_last_mode_change') %}
+          {% if ts in ['unknown', 'unavailable', 'none', ''] %}
+            0
+          {% else %}
+            {{ (as_timestamp(now()) - as_timestamp(ts)) | int(0) }}
+          {% endif %}
+
+      - name: "PV Gesamtleistung Balkon"
+        unique_id: pv_gesamtleistung_balkon
+        unit_of_measurement: "W"
+        device_class: power
+        state_class: measurement
+        state: >
+          {{
+            (
+              states('sensor.pv_1_power') | float(0)
+              +
+              states('sensor.pv_2_power') | float(0)
+            ) | round(0)
+          }}
