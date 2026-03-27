@@ -1,7 +1,8 @@
 blueprint:
-  name: Marstek Venus E – Zero Export Controller V4.1
+  name: Marstek Venus E – Zero Export Controller V4.2
   description: >
     Zero-export controller for Marstek Venus E with real device control.
+
     Features:
       - controls RS485 switch
       - sets Marstek mode to "Manuell"
@@ -15,6 +16,8 @@ blueprint:
       - optional grid smoothing
       - optional night profile
       - debug helpers
+      - improved trigger responsiveness
+      - improved night-profile logic
 
   domain: automation
   homeassistant:
@@ -182,6 +185,15 @@ blueprint:
       name: Helper - smoothed grid power
       description: >
         input_number helper used to store the smoothed grid power value.
+      selector:
+        entity:
+          domain: input_number
+
+    debug_effective_grid_helper:
+      name: Debug helper - effective grid power
+      description: >
+        input_number helper used to store the effective grid value
+        actually used by the controller.
       selector:
         entity:
           domain: input_number
@@ -420,6 +432,7 @@ blueprint:
       name: Night profile based on sun
       description: >
         If enabled, the night profile becomes active when the sun is below the horizon.
+        If disabled, the night profile is activated only by PV threshold.
       default: true
       selector:
         boolean: {}
@@ -427,7 +440,7 @@ blueprint:
     night_profile_pv_threshold:
       name: Night profile PV threshold
       description: >
-        The night profile may also become active when PV power is at or below this value.
+        Threshold used only when night_profile_use_sun is disabled.
       default: 80
       selector:
         number:
@@ -442,6 +455,16 @@ max_exceeded: silent
 trigger:
   - platform: time_pattern
     seconds: "/5"
+  - platform: state
+    entity_id: !input grid_power_sensor
+  - platform: state
+    entity_id: !input battery_soc_sensor
+  - platform: state
+    entity_id: !input pv_power_sensor
+  - platform: state
+    entity_id: !input enabled_entity
+  - platform: homeassistant
+    event: start
 
 action:
   - variables:
@@ -463,6 +486,7 @@ action:
       debug_reason_entity: !input debug_reason_helper
       debug_cooldown_entity: !input debug_cooldown_helper
       smoothed_grid_entity: !input smoothed_grid_helper
+      debug_effective_grid_entity: !input debug_effective_grid_helper
 
       use_grid_smoothing_value: !input use_grid_smoothing
       smoothing_factor_value: !input smoothing_factor_percent
@@ -495,6 +519,7 @@ action:
       current_charge: "{{ states(charge_entity) | float(0) }}"
       current_discharge: "{{ states(discharge_entity) | float(0) }}"
       previous_smoothed_grid: "{{ states(smoothed_grid_entity) | float(0) }}"
+
       current_mode: >
         {% set m = states(mode_entity) | lower %}
         {{ m if m in ['hold', 'charge', 'discharge'] else 'hold' }}
@@ -520,6 +545,7 @@ action:
            and states(soc_entity) not in ['unknown','unavailable','none',''] }}
 
       smoothing_alpha: "{{ (smoothing_factor_value | float(30)) / 100 }}"
+
       calculated_smoothed_grid: >
         {% if use_grid_smoothing_value %}
           {{ ((raw_grid_power | float(0)) * (smoothing_alpha | float(0.3))) +
@@ -537,7 +563,8 @@ action:
 
       delta: "{{ (effective_grid_power | float(0)) - (grid_bias_value | float(0)) }}"
       abs_delta: "{{ ((effective_grid_power | float(0)) - (grid_bias_value | float(0))) | abs }}"
-      sun_is_down: "{{ is_state('sun.sun', 'below_horizon') }}"
+      sun_is_down: >
+        {{ states('sun.sun') == 'below_horizon' }}
 
       evening_ok_for_discharge: >
         {% if not evening_dependency_enabled %}
@@ -562,12 +589,10 @@ action:
       night_profile_active: >
         {% if not enable_night_profile_value %}
           false
-        {% elif night_profile_use_sun_value and sun_is_down %}
-          true
-        {% elif pv_power <= night_profile_pv_threshold_value %}
-          true
+        {% elif night_profile_use_sun_value %}
+          {{ sun_is_down }}
         {% else %}
-          false
+          {{ pv_power <= night_profile_pv_threshold_value }}
         {% endif %}
 
       effective_max_discharge_power: >
@@ -597,8 +622,6 @@ action:
         {% elif current_mode == 'charge' %}
           {% if delta <= (0 - charge_stop_value) and charge_allowed %}
             charge
-          {% elif abs_delta <= deadband_value %}
-            hold
           {% else %}
             hold
           {% endif %}
@@ -606,8 +629,6 @@ action:
         {% elif current_mode == 'discharge' %}
           {% if delta >= discharge_stop_value and evening_ok_for_discharge %}
             discharge
-          {% elif abs_delta <= deadband_value %}
-            hold
           {% else %}
             hold
           {% endif %}
@@ -615,14 +636,8 @@ action:
         {% else %}
           {% if delta >= discharge_start_value and evening_ok_for_discharge %}
             discharge
-          {% elif delta >= discharge_start_value and not evening_ok_for_discharge %}
-            hold
           {% elif delta <= (0 - charge_start_value) and charge_allowed %}
             charge
-          {% elif delta <= (0 - charge_start_value) and not charge_allowed %}
-            hold
-          {% elif abs_delta <= deadband_value %}
-            hold
           {% else %}
             hold
           {% endif %}
@@ -780,6 +795,12 @@ action:
       entity_id: !input debug_delta_helper
     data:
       value: "{{ delta | round(1) }}"
+
+  - service: input_number.set_value
+    target:
+      entity_id: !input debug_effective_grid_helper
+    data:
+      value: "{{ effective_grid_power | round(1) }}"
 
   - service: input_text.set_value
     target:
