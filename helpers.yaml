@@ -1,0 +1,56 @@
+input_boolean:
+  marstek_zero_export_enable:
+    name: Marstek Zero Export Enable
+    icon: mdi:transmission-tower-export
+
+  marstek_zero_export_cooldown:
+    name: Marstek Zero Export Cooldown
+    icon: mdi:timer-lock
+
+input_select:
+  marstek_zero_export_mode:
+    name: Marstek Zero Export Mode
+    options:
+      - hold
+      - charge
+      - discharge
+    icon: mdi:battery-sync
+
+input_datetime:
+  marstek_zero_export_last_mode_change:
+    name: Marstek Zero Export Last Mode Change
+    has_date: true
+    has_time: true
+
+input_number:
+  marstek_zero_export_debug_delta:
+    name: Marstek Zero Export Debug Delta
+    min: -10000
+    max: 10000
+    step: 1
+    mode: box
+    unit_of_measurement: W
+    icon: mdi:sigma
+
+  marstek_zero_export_smoothed_grid:
+    name: Marstek Zero Export Smoothed Grid
+    min: -10000
+    max: 10000
+    step: 1
+    mode: box
+    unit_of_measurement: W
+    icon: mdi:chart-bell-curve
+
+  marstek_zero_export_effective_grid:
+    name: Marstek Zero Export Effective Grid
+    min: -10000
+    max: 10000
+    step: 1
+    mode: box
+    unit_of_measurement: W
+    icon: mdi:transmission-tower
+
+input_text:
+  marstek_zero_export_reason:
+    name: Marstek Zero Export Reason
+    max: 255
