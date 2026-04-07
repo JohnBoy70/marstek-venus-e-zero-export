@@ -690,7 +690,7 @@ action:
         {% elif final_mode == 'discharge' %}
           Entladen
         {% else %}
-          Halt
+          stop
         {% endif %}
 
       reason_text: >
