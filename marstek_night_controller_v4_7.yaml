@@ -2,19 +2,20 @@ automation:
   - alias: Marstek Night Controller V4.7
     id: marstek_night_controller_v4_7
     mode: restart
-    trigger:
-      - platform: time_pattern
+
+    triggers:
+      - trigger: time_pattern
         seconds: "/10"
-      - platform: state
+      - trigger: state
         entity_id:
           - input_select.pv1_strategy
           - input_boolean.pv1_marstek_active
           - sensor.meter_1_mt_1_16_7_0
           - sensor.marstek_venus_modbus_batterie_ladezustand
-      - platform: homeassistant
+      - trigger: homeassistant
         event: start
 
-    condition:
+    conditions:
       - condition: state
         entity_id: input_boolean.pv1_marstek_active
         state: "on"
@@ -22,7 +23,7 @@ automation:
         entity_id: input_select.pv1_strategy
         state: "Nacht"
 
-    action:
+    actions:
       - variables:
           device_manual_value: "manual"
           device_stop_value: "stop"
@@ -53,14 +54,14 @@ automation:
           should_stop: >
             {{ soc <= night_soc_min or grid_power <= night_stop_threshold }}
 
-      - service: switch.turn_on
+      - action: switch.turn_on
         target:
           entity_id: switch.marstek_venus_modbus_rs485_steuermodus
 
       - repeat:
           count: 2
           sequence:
-            - service: select.select_option
+            - action: select.select_option
               target:
                 entity_id: select.marstek_venus_modbus_modus
               data:
@@ -73,17 +74,17 @@ automation:
               - condition: template
                 value_template: "{{ should_discharge }}"
             sequence:
-              - service: select.select_option
+              - action: select.select_option
                 target:
                   entity_id: select.marstek_venus_modbus_force_mode
                 data:
                   option: "{{ device_discharge_value }}"
-              - service: number.set_value
+              - action: number.set_value
                 target:
                   entity_id: number.marstek_venus_modbus_ladeleistung_einstellen
                 data:
                   value: 0
-              - service: number.set_value
+              - action: number.set_value
                 target:
                   entity_id: number.marstek_venus_modbus_entladeleistung_einstellen
                 data:
@@ -93,17 +94,17 @@ automation:
               - condition: template
                 value_template: "{{ should_stop }}"
             sequence:
-              - service: select.select_option
+              - action: select.select_option
                 target:
                   entity_id: select.marstek_venus_modbus_force_mode
                 data:
                   option: "{{ device_stop_value }}"
-              - service: number.set_value
+              - action: number.set_value
                 target:
                   entity_id: number.marstek_venus_modbus_ladeleistung_einstellen
                 data:
                   value: 0
-              - service: number.set_value
+              - action: number.set_value
                 target:
                   entity_id: number.marstek_venus_modbus_entladeleistung_einstellen
                 data:
