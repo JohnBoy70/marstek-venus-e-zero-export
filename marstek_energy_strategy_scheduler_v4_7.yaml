@@ -2,17 +2,18 @@ automation:
   - alias: Marstek Energy Strategy Scheduler V4.7
     id: marstek_energy_strategy_scheduler_v4_7
     mode: single
-    trigger:
-      - platform: time_pattern
+
+    triggers:
+      - trigger: time_pattern
         minutes: "/5"
-      - platform: state
+      - trigger: state
         entity_id:
           - sun.sun
           - sensor.pv_bkw_summe
-      - platform: homeassistant
+      - trigger: homeassistant
         event: start
 
-    action:
+    actions:
       - variables:
           strategy_entity: input_select.pv1_strategy
           pv_entity: sensor.pv_bkw_summe
@@ -46,7 +47,7 @@ automation:
               - condition: template
                 value_template: "{{ states(strategy_entity) != target_strategy }}"
             sequence:
-              - service: input_select.select_option
+              - action: input_select.select_option
                 target:
                   entity_id: input_select.pv1_strategy
                 data:
