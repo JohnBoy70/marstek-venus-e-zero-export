@@ -29,6 +29,10 @@ automation:
           device_stop_value: "stop"
           device_discharge_value: "discharge"
 
+          mode_helper: input_select.marstek_zero_export_mode
+          reason_helper: input_text.pv1_helper_reason
+          cooldown_helper: input_boolean.marstek_zero_export_cooldown
+
           grid_power: "{{ states('sensor.meter_1_mt_1_16_7_0') | float(0) }}"
           soc: "{{ states('sensor.marstek_venus_modbus_batterie_ladezustand') | float(0) }}"
 
@@ -89,6 +93,19 @@ automation:
                   entity_id: number.marstek_venus_modbus_entladeleistung_einstellen
                 data:
                   value: "{{ target_discharge }}"
+              - action: input_select.select_option
+                target:
+                  entity_id: input_select.marstek_zero_export_mode
+                data:
+                  option: "discharge"
+              - action: input_text.set_value
+                target:
+                  entity_id: input_text.pv1_helper_reason
+                data:
+                  value: "night | night_supply_discharging"
+              - action: input_boolean.turn_off
+                target:
+                  entity_id: input_boolean.marstek_zero_export_cooldown
 
           - conditions:
               - condition: template
@@ -109,3 +126,16 @@ automation:
                   entity_id: number.marstek_venus_modbus_entladeleistung_einstellen
                 data:
                   value: 0
+              - action: input_select.select_option
+                target:
+                  entity_id: input_select.marstek_zero_export_mode
+                data:
+                  option: "hold"
+              - action: input_text.set_value
+                target:
+                  entity_id: input_text.pv1_helper_reason
+                data:
+                  value: "night | night_supply_hold"
+              - action: input_boolean.turn_off
+                target:
+                  entity_id: input_boolean.marstek_zero_export_cooldown
