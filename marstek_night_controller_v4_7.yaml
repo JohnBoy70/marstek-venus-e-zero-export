@@ -1,0 +1,110 @@
+automation:
+  - alias: Marstek Night Controller V4.7
+    id: marstek_night_controller_v4_7
+    mode: restart
+    trigger:
+      - platform: time_pattern
+        seconds: "/10"
+      - platform: state
+        entity_id:
+          - input_select.pv1_strategy
+          - input_boolean.pv1_marstek_active
+          - sensor.meter_1_mt_1_16_7_0
+          - sensor.marstek_venus_modbus_batterie_ladezustand
+      - platform: homeassistant
+        event: start
+
+    condition:
+      - condition: state
+        entity_id: input_boolean.pv1_marstek_active
+        state: "on"
+      - condition: state
+        entity_id: input_select.pv1_strategy
+        state: "Nacht"
+
+    action:
+      - variables:
+          device_manual_value: "manual"
+          device_stop_value: "stop"
+          device_discharge_value: "discharge"
+
+          grid_power: "{{ states('sensor.meter_1_mt_1_16_7_0') | float(0) }}"
+          soc: "{{ states('sensor.marstek_venus_modbus_batterie_ladezustand') | float(0) }}"
+
+          grid_bias: 20
+          night_start_threshold: 60
+          night_stop_threshold: 30
+          night_soc_min: 25
+          night_max_discharge: 250
+
+          target_discharge: >
+            {% set p = (grid_power - grid_bias) | float(0) %}
+            {% if p < 0 %}
+              0
+            {% elif p > night_max_discharge %}
+              {{ night_max_discharge }}
+            {% else %}
+              {{ p | round(0) | int }}
+            {% endif %}
+
+          should_discharge: >
+            {{ soc > night_soc_min and grid_power >= night_start_threshold }}
+
+          should_stop: >
+            {{ soc <= night_soc_min or grid_power <= night_stop_threshold }}
+
+      - service: switch.turn_on
+        target:
+          entity_id: switch.marstek_venus_modbus_rs485_steuermodus
+
+      - repeat:
+          count: 2
+          sequence:
+            - service: select.select_option
+              target:
+                entity_id: select.marstek_venus_modbus_modus
+              data:
+                option: "{{ device_manual_value }}"
+            - delay:
+                milliseconds: 200
+
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ should_discharge }}"
+            sequence:
+              - service: select.select_option
+                target:
+                  entity_id: select.marstek_venus_modbus_force_mode
+                data:
+                  option: "{{ device_discharge_value }}"
+              - service: number.set_value
+                target:
+                  entity_id: number.marstek_venus_modbus_ladeleistung_einstellen
+                data:
+                  value: 0
+              - service: number.set_value
+                target:
+                  entity_id: number.marstek_venus_modbus_entladeleistung_einstellen
+                data:
+                  value: "{{ target_discharge }}"
+
+          - conditions:
+              - condition: template
+                value_template: "{{ should_stop }}"
+            sequence:
+              - service: select.select_option
+                target:
+                  entity_id: select.marstek_venus_modbus_force_mode
+                data:
+                  option: "{{ device_stop_value }}"
+              - service: number.set_value
+                target:
+                  entity_id: number.marstek_venus_modbus_ladeleistung_einstellen
+                data:
+                  value: 0
+              - service: number.set_value
+                target:
+                  entity_id: number.marstek_venus_modbus_entladeleistung_einstellen
+                data:
+                  value: 0
