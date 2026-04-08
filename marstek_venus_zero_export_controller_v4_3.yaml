@@ -1,0 +1,967 @@
+blueprint:
+  name: Marstek Venus E – Zero Export Controller V4.3
+  description: >
+    Zero-export controller for Marstek Venus E with real device control.
+
+    Features:
+      - controls RS485 switch
+      - sets Marstek mode to "manual"
+      - sets action mode to "stop", "charge", "discharge"
+      - charge/discharge power control
+      - SOC protection
+      - mode cooldown
+      - hysteresis via separate start/stop thresholds
+      - optional PV-based evening discharge
+      - optional block charging without PV
+      - optional grid smoothing
+      - optional night profile
+      - debug helpers
+      - improved trigger responsiveness
+      - improved night-profile logic
+      - Marstek option mapping for manual / stop / charge / discharge
+
+  domain: automation
+  homeassistant:
+    min_version: 2023.9.0
+
+  input:
+    enabled_entity:
+      name: Enable control
+      description: >
+        Master switch for the controller.
+        When ON the automation actively controls the Marstek system
+        (RS485, mode and charge/discharge power).
+        When OFF the automation stops sending commands and the device
+        can operate normally using its internal logic.
+      selector:
+        entity:
+          domain: input_boolean
+
+    grid_power_sensor:
+      name: Raw grid power sensor
+      description: >
+        Instantaneous grid power measurement in watts.
+        Positive values must represent grid import (house consuming power).
+        Negative values must represent grid export (feeding power to grid).
+        This should be the raw, unfiltered value from the grid meter.
+      selector:
+        entity:
+          domain: sensor
+
+    battery_soc_sensor:
+      name: Battery SOC sensor
+      description: >
+        Sensor that reports the current battery State of Charge (SOC) in percent.
+        This value is used to prevent deep discharge and overcharging.
+      selector:
+        entity:
+          domain: sensor
+
+    pv_power_sensor:
+      name: PV power sensor
+      description: >
+        Summed PV power from both balcony systems in watts.
+        This sensor should ideally return 0 instead of unknown at night.
+      selector:
+        entity:
+          domain: sensor
+
+    strategy_select_entity:
+      name: Marstek strategy select
+      description: >
+        Marstek operating mode selector.
+        The automation sets this to "manual" so Home Assistant can control
+        charge and discharge behaviour.
+      selector:
+        entity:
+          domain: select
+
+    action_select_entity:
+      name: Marstek force mode select
+      description: >
+        Select entity with options stop / charge / discharge.
+        The automation writes the desired operating action here.
+      selector:
+        entity:
+          domain: select
+
+    rs485_switch_entity:
+      name: RS485 control switch
+      description: >
+        Switch entity used to enable external RS485 control.
+      selector:
+        entity:
+          domain: switch
+
+    charge_power_entity:
+      name: Charge power entity
+      description: >
+        Number entity controlling the battery charging power in watts.
+      selector:
+        entity:
+          domain: number
+
+    discharge_power_entity:
+      name: Discharge power entity
+      description: >
+        Number entity controlling the battery discharging power in watts.
+      selector:
+        entity:
+          domain: number
+
+    max_charge_power_entity:
+      name: Max charge power entity
+      description: >
+        Number entity for maximum allowed charging power.
+      selector:
+        entity:
+          domain: number
+
+    max_discharge_power_entity:
+      name: Max discharge power entity
+      description: >
+        Number entity for maximum allowed discharging power.
+      selector:
+        entity:
+          domain: number
+
+    max_soc_entity:
+      name: Max SOC entity
+      description: >
+        Number entity for the battery maximum SOC limit.
+      selector:
+        entity:
+          domain: number
+
+    mode_helper:
+      name: Debug helper - final mode
+      description: >
+        input_select helper with the exact options:
+        hold, charge, discharge
+      selector:
+        entity:
+          domain: input_select
+
+    last_mode_change_helper:
+      name: Helper - last mode change
+      description: >
+        input_datetime helper with date and time enabled.
+      selector:
+        entity:
+          domain: input_datetime
+
+    debug_delta_helper:
+      name: Debug helper - delta
+      description: >
+        input_number helper used to store the effective controller delta.
+      selector:
+        entity:
+          domain: input_number
+
+    debug_reason_helper:
+      name: Debug helper - reason / Sperrgrund
+      description: >
+        input_text helper used to store the current controller reason.
+      selector:
+        entity:
+          domain: input_text
+
+    debug_cooldown_helper:
+      name: Debug helper - cooldown active
+      description: >
+        input_boolean helper indicating whether mode cooldown is active.
+      selector:
+        entity:
+          domain: input_boolean
+
+    use_grid_smoothing:
+      name: Enable grid smoothing
+      description: >
+        If enabled, an EMA-smoothed grid power value is used for control.
+      default: false
+      selector:
+        boolean: {}
+
+    smoothed_grid_helper:
+      name: Helper - smoothed grid power
+      description: >
+        input_number helper used to store the smoothed grid power value.
+      selector:
+        entity:
+          domain: input_number
+
+    debug_effective_grid_helper:
+      name: Debug helper - effective grid power
+      description: >
+        input_number helper used to store the effective grid value
+        actually used by the controller.
+      selector:
+        entity:
+          domain: input_number
+
+    smoothing_factor_percent:
+      name: Smoothing factor
+      description: >
+        Percentage of NEW value in EMA smoothing.
+        Example: 30 = 30% new value + 70% previous smoothed value.
+      default: 30
+      selector:
+        number:
+          min: 1
+          max: 100
+          step: 1
+          unit_of_measurement: "%"
+
+    grid_bias:
+      name: Grid bias
+      description: >
+        Positive bias keeps slight grid import to reduce unwanted export.
+      default: 20
+      selector:
+        number:
+          min: -100
+          max: 100
+          step: 1
+          unit_of_measurement: W
+
+    deadband:
+      name: Deadband
+      description: >
+        Hold zone around zero. Inside this band the controller prefers hold.
+      default: 40
+      selector:
+        number:
+          min: 0
+          max: 300
+          step: 1
+          unit_of_measurement: W
+
+    charge_start_threshold:
+      name: Charge start threshold
+      description: >
+        Export level required to enter charge mode.
+      default: 80
+      selector:
+        number:
+          min: 0
+          max: 500
+          step: 1
+          unit_of_measurement: W
+
+    charge_stop_threshold:
+      name: Charge stop threshold
+      description: >
+        Export level below which the controller leaves charge mode and returns to hold.
+      default: 30
+      selector:
+        number:
+          min: 0
+          max: 500
+          step: 1
+          unit_of_measurement: W
+
+    discharge_start_threshold:
+      name: Discharge start threshold
+      description: >
+        Import level required to enter discharge mode.
+      default: 80
+      selector:
+        number:
+          min: 0
+          max: 500
+          step: 1
+          unit_of_measurement: W
+
+    discharge_stop_threshold:
+      name: Discharge stop threshold
+      description: >
+        Import level below which the controller leaves discharge mode and returns to hold.
+      default: 30
+      selector:
+        number:
+          min: 0
+          max: 500
+          step: 1
+          unit_of_measurement: W
+
+    soc_min_discharge:
+      name: Minimum SOC for discharge
+      description: >
+        Discharge is blocked below this SOC.
+      default: 20
+      selector:
+        number:
+          min: 0
+          max: 80
+          step: 1
+          unit_of_measurement: "%"
+
+    soc_max_charge:
+      name: Maximum SOC for charge
+      description: >
+        Charge is blocked above this SOC.
+      default: 95
+      selector:
+        number:
+          min: 20
+          max: 100
+          step: 1
+          unit_of_measurement: "%"
+
+    fallback_max_charge_power:
+      name: Fallback max charge power
+      description: >
+        Used if the selected max charge power entity is unavailable.
+      default: 1200
+      selector:
+        number:
+          min: 0
+          max: 3000
+          step: 10
+          unit_of_measurement: W
+
+    fallback_max_discharge_power:
+      name: Fallback max discharge power
+      description: >
+        Used if the selected max discharge power entity is unavailable.
+      default: 800
+      selector:
+        number:
+          min: 0
+          max: 3000
+          step: 10
+          unit_of_measurement: W
+
+    ramp_limit:
+      name: Ramp limit
+      description: >
+        Maximum power change per cycle.
+      default: 100
+      selector:
+        number:
+          min: 10
+          max: 1000
+          step: 10
+          unit_of_measurement: W
+
+    min_write_delta:
+      name: Minimum write delta
+      description: >
+        Only write a new value if the difference is at least this large.
+      default: 20
+      selector:
+        number:
+          min: 0
+          max: 200
+          step: 1
+          unit_of_measurement: W
+
+    mode_cooldown_seconds:
+      name: Mode cooldown
+      description: >
+        Minimum time between direct charge <-> discharge transitions.
+      default: 20
+      selector:
+        number:
+          min: 0
+          max: 600
+          step: 1
+          unit_of_measurement: s
+
+    enable_evening_discharge_dependency:
+      name: Enable PV dependency for evening discharge
+      description: >
+        If enabled, discharge is only allowed when PV is low enough
+        or the sun is below the horizon.
+      default: true
+      selector:
+        boolean: {}
+
+    pv_evening_threshold:
+      name: PV evening threshold
+      description: >
+        Discharge is allowed when PV power is at or below this value.
+      default: 80
+      selector:
+        number:
+          min: 0
+          max: 1000
+          step: 10
+          unit_of_measurement: W
+
+    block_charge_without_pv:
+      name: Block charging when PV is too low
+      description: >
+        Prevent charging from the grid if PV power is too low.
+      default: true
+      selector:
+        boolean: {}
+
+    minimum_pv_for_charge:
+      name: Minimum PV power for charging
+      description: >
+        Charge is only allowed when PV power is at or above this threshold.
+      default: 100
+      selector:
+        number:
+          min: 0
+          max: 3000
+          step: 10
+          unit_of_measurement: W
+
+    enable_night_profile:
+      name: Enable night profile
+      description: >
+        If enabled, discharge power may be limited during low-PV/night periods.
+      default: false
+      selector:
+        boolean: {}
+
+    night_profile_discharge_power:
+      name: Night profile max discharge power
+      description: >
+        Maximum discharge power used while the night profile is active.
+      default: 400
+      selector:
+        number:
+          min: 0
+          max: 3000
+          step: 10
+          unit_of_measurement: W
+
+    night_profile_use_sun:
+      name: Night profile based on sun
+      description: >
+        If enabled, the night profile becomes active when the sun is below the horizon.
+        If disabled, the night profile is activated only by PV threshold.
+      default: true
+      selector:
+        boolean: {}
+
+    night_profile_pv_threshold:
+      name: Night profile PV threshold
+      description: >
+        Threshold used only when night_profile_use_sun is disabled.
+      default: 80
+      selector:
+        number:
+          min: 0
+          max: 1000
+          step: 10
+          unit_of_measurement: W
+
+mode: restart
+max_exceeded: silent
+
+trigger:
+  - platform: time_pattern
+    seconds: "/5"
+  - platform: state
+    entity_id: !input grid_power_sensor
+  - platform: state
+    entity_id: !input battery_soc_sensor
+  - platform: state
+    entity_id: !input pv_power_sensor
+  - platform: state
+    entity_id: !input enabled_entity
+  - platform: homeassistant
+    event: start
+
+action:
+  - variables:
+      enabled_entity_var: !input enabled_entity
+      grid_entity: !input grid_power_sensor
+      soc_entity: !input battery_soc_sensor
+      pv_entity: !input pv_power_sensor
+      strategy_entity: !input strategy_select_entity
+      action_entity: !input action_select_entity
+      rs485_entity: !input rs485_switch_entity
+      charge_entity: !input charge_power_entity
+      discharge_entity: !input discharge_power_entity
+      max_charge_entity: !input max_charge_power_entity
+      max_discharge_entity: !input max_discharge_power_entity
+      max_soc_target_entity: !input max_soc_entity
+      mode_entity: !input mode_helper
+      last_mode_change_entity: !input last_mode_change_helper
+      debug_delta_entity: !input debug_delta_helper
+      debug_reason_entity: !input debug_reason_helper
+      debug_cooldown_entity: !input debug_cooldown_helper
+      smoothed_grid_entity: !input smoothed_grid_helper
+      debug_effective_grid_entity: !input debug_effective_grid_helper
+
+      use_grid_smoothing_value: !input use_grid_smoothing
+      smoothing_factor_value: !input smoothing_factor_percent
+      grid_bias_value: !input grid_bias
+      deadband_value: !input deadband
+      charge_start_value: !input charge_start_threshold
+      charge_stop_value: !input charge_stop_threshold
+      discharge_start_value: !input discharge_start_threshold
+      discharge_stop_value: !input discharge_stop_threshold
+      soc_min_value: !input soc_min_discharge
+      soc_max_charge_value: !input soc_max_charge
+      fallback_max_charge_value: !input fallback_max_charge_power
+      fallback_max_discharge_value: !input fallback_max_discharge_power
+      ramp_limit_value: !input ramp_limit
+      min_write_delta_value: !input min_write_delta
+      mode_cooldown_value: !input mode_cooldown_seconds
+      evening_dependency_enabled: !input enable_evening_discharge_dependency
+      pv_evening_threshold_value: !input pv_evening_threshold
+      block_charge_without_pv_value: !input block_charge_without_pv
+      minimum_pv_for_charge_value: !input minimum_pv_for_charge
+      enable_night_profile_value: !input enable_night_profile
+      night_profile_discharge_power_value: !input night_profile_discharge_power
+      night_profile_use_sun_value: !input night_profile_use_sun
+      night_profile_pv_threshold_value: !input night_profile_pv_threshold
+
+      enabled: "{{ is_state(enabled_entity_var, 'on') }}"
+      raw_grid_power: "{{ states(grid_entity) | float(0) }}"
+      soc: "{{ states(soc_entity) | float(0) }}"
+      pv_power: "{{ states(pv_entity) | float(0) }}"
+      current_charge: "{{ states(charge_entity) | float(0) }}"
+      current_discharge: "{{ states(discharge_entity) | float(0) }}"
+      previous_smoothed_grid: "{{ states(smoothed_grid_entity) | float(0) }}"
+
+      current_mode: >
+        {% set m = states(mode_entity) | lower %}
+        {{ m if m in ['hold', 'charge', 'discharge'] else 'hold' }}
+
+      max_charge_power: >
+        {% set v = states(max_charge_entity) %}
+        {% if v in ['unknown', 'unavailable', 'none', ''] %}
+          {{ fallback_max_charge_value | float(0) }}
+        {% else %}
+          {{ v | float(0) }}
+        {% endif %}
+
+      base_max_discharge_power: >
+        {% set v = states(max_discharge_entity) %}
+        {% if v in ['unknown', 'unavailable', 'none', ''] %}
+          {{ fallback_max_discharge_value | float(0) }}
+        {% else %}
+          {{ v | float(0) }}
+        {% endif %}
+
+      sensor_valid: >
+        {{ states(grid_entity) not in ['unknown','unavailable','none','']
+           and states(soc_entity) not in ['unknown','unavailable','none',''] }}
+
+      smoothing_alpha: "{{ (smoothing_factor_value | float(30)) / 100 }}"
+
+      calculated_smoothed_grid: >
+        {% if use_grid_smoothing_value %}
+          {{ ((raw_grid_power | float(0)) * (smoothing_alpha | float(0.3))) +
+             ((previous_smoothed_grid | float(0)) * (1 - (smoothing_alpha | float(0.3)))) }}
+        {% else %}
+          {{ raw_grid_power | float(0) }}
+        {% endif %}
+
+      effective_grid_power: >
+        {% if use_grid_smoothing_value %}
+          {{ calculated_smoothed_grid | float(0) }}
+        {% else %}
+          {{ raw_grid_power | float(0) }}
+        {% endif %}
+
+      delta: "{{ (effective_grid_power | float(0)) - (grid_bias_value | float(0)) }}"
+      abs_delta: "{{ ((effective_grid_power | float(0)) - (grid_bias_value | float(0))) | abs }}"
+      sun_is_down: >
+        {{ states('sun.sun') == 'below_horizon' }}
+
+      evening_ok_for_discharge: >
+        {% if not evening_dependency_enabled %}
+          true
+        {% elif sun_is_down %}
+          true
+        {% elif pv_power <= pv_evening_threshold_value %}
+          true
+        {% else %}
+          false
+        {% endif %}
+
+      charge_allowed: >
+        {% if not block_charge_without_pv_value %}
+          true
+        {% elif pv_power >= minimum_pv_for_charge_value %}
+          true
+        {% else %}
+          false
+        {% endif %}
+
+      night_profile_active: >
+        {% if not enable_night_profile_value %}
+          false
+        {% elif night_profile_use_sun_value %}
+          {{ sun_is_down }}
+        {% else %}
+          {{ pv_power <= night_profile_pv_threshold_value }}
+        {% endif %}
+
+      effective_max_discharge_power: >
+        {% if night_profile_active %}
+          {{ [base_max_discharge_power | float(0), night_profile_discharge_power_value | float(0)] | min }}
+        {% else %}
+          {{ base_max_discharge_power | float(0) }}
+        {% endif %}
+
+      safety_hold: >
+        {% if not enabled %}
+          true
+        {% elif not sensor_valid %}
+          true
+        {% elif soc <= soc_min_value and delta > 0 %}
+          true
+        {% elif soc >= soc_max_charge_value and delta < 0 %}
+          true
+        {% else %}
+          false
+        {% endif %}
+
+      desired_mode: >
+        {% if safety_hold %}
+          hold
+
+        {% elif current_mode == 'charge' %}
+          {% if delta <= (0 - charge_stop_value) and charge_allowed %}
+            charge
+          {% else %}
+            hold
+          {% endif %}
+
+        {% elif current_mode == 'discharge' %}
+          {% if delta >= discharge_stop_value and evening_ok_for_discharge %}
+            discharge
+          {% else %}
+            hold
+          {% endif %}
+
+        {% else %}
+          {% if delta >= discharge_start_value and evening_ok_for_discharge %}
+            discharge
+          {% elif delta <= (0 - charge_start_value) and charge_allowed %}
+            charge
+          {% else %}
+            hold
+          {% endif %}
+        {% endif %}
+
+      last_mode_change_ts: >
+        {% set v = states(last_mode_change_entity) %}
+        {% if v in ['unknown', 'unavailable', 'none', ''] %}
+          0
+        {% else %}
+          {{ as_timestamp(v) | float(0) }}
+        {% endif %}
+
+      now_ts: "{{ as_timestamp(now()) | float(0) }}"
+      cooldown_elapsed: "{{ (now_ts - last_mode_change_ts) >= (mode_cooldown_value | float(0)) }}"
+
+      cooldown_active: >
+        {% if safety_hold %}
+          false
+        {% elif desired_mode == current_mode %}
+          false
+        {% elif current_mode == 'hold' %}
+          false
+        {% elif desired_mode == 'hold' %}
+          false
+        {% elif cooldown_elapsed %}
+          false
+        {% else %}
+          true
+        {% endif %}
+
+      final_mode: >
+        {% if safety_hold %}
+          hold
+        {% elif desired_mode == current_mode %}
+          {{ current_mode }}
+        {% elif current_mode == 'hold' %}
+          {{ desired_mode }}
+        {% elif desired_mode == 'hold' %}
+          hold
+        {% elif cooldown_elapsed %}
+          {{ desired_mode }}
+        {% else %}
+          {{ current_mode }}
+        {% endif %}
+
+      device_force_mode: >
+        {% if final_mode == 'charge' %}
+          charge
+        {% elif final_mode == 'discharge' %}
+          discharge
+        {% else %}
+          stop
+        {% endif %}
+
+      reason_text: >
+        {% if not enabled %}
+          disabled
+        {% elif states(grid_entity) in ['unknown','unavailable','none',''] %}
+          grid_invalid
+        {% elif states(soc_entity) in ['unknown','unavailable','none',''] %}
+          soc_invalid
+        {% elif soc <= soc_min_value and delta > 0 %}
+          soc_min_block_discharge
+        {% elif soc >= soc_max_charge_value and delta < 0 %}
+          soc_max_block_charge
+        {% elif delta <= (0 - charge_start_value) and not charge_allowed %}
+          charge_blocked_low_pv
+        {% elif cooldown_active %}
+          cooldown_active
+        {% elif final_mode == 'hold' and delta >= discharge_start_value and not evening_ok_for_discharge %}
+          discharge_blocked_daytime_pv
+        {% elif final_mode == 'charge' and night_profile_active %}
+          charge_night_profile_active
+        {% elif final_mode == 'discharge' and night_profile_active %}
+          discharge_night_profile_active
+        {% elif final_mode == 'charge' %}
+          charging_due_to_export
+        {% elif final_mode == 'discharge' %}
+          discharging_due_to_import
+        {% elif abs_delta <= deadband_value %}
+          deadband_hold
+        {% else %}
+          hold_no_condition
+        {% endif %}
+
+      unclamped_target_power: >
+        {% if final_mode == 'charge' %}
+          {{ (0 - delta) | float(0) }}
+        {% elif final_mode == 'discharge' %}
+          {{ delta | float(0) }}
+        {% else %}
+          0
+        {% endif %}
+
+      capped_target_power: >
+        {% if final_mode == 'charge' %}
+          {{ [unclamped_target_power | float(0), max_charge_power | float(0)] | min }}
+        {% elif final_mode == 'discharge' %}
+          {{ [unclamped_target_power | float(0), effective_max_discharge_power | float(0)] | min }}
+        {% else %}
+          0
+        {% endif %}
+
+      ramped_target_power: >
+        {% if final_mode == 'charge' %}
+          {% set diff = (capped_target_power | float(0)) - (current_charge | float(0)) %}
+          {% if diff > ramp_limit_value %}
+            {{ (current_charge | float(0)) + (ramp_limit_value | float(0)) }}
+          {% elif diff < (0 - ramp_limit_value) %}
+            {{ [0, (current_charge | float(0)) - (ramp_limit_value | float(0))] | max }}
+          {% else %}
+            {{ capped_target_power | float(0) }}
+          {% endif %}
+        {% elif final_mode == 'discharge' %}
+          {% set diff = (capped_target_power | float(0)) - (current_discharge | float(0)) %}
+          {% if diff > ramp_limit_value %}
+            {{ (current_discharge | float(0)) + (ramp_limit_value | float(0)) }}
+          {% elif diff < (0 - ramp_limit_value) %}
+            {{ [0, (current_discharge | float(0)) - (ramp_limit_value | float(0))] | max }}
+          {% else %}
+            {{ capped_target_power | float(0) }}
+          {% endif %}
+        {% else %}
+          0
+        {% endif %}
+
+      target_charge: >
+        {% if final_mode == 'charge' %}
+          {{ [ramped_target_power | float(0), max_charge_power | float(0)] | min | round(0) | int }}
+        {% else %}
+          0
+        {% endif %}
+
+      target_discharge: >
+        {% if final_mode == 'discharge' %}
+          {{ [ramped_target_power | float(0), effective_max_discharge_power | float(0)] | min | round(0) | int }}
+        {% else %}
+          0
+        {% endif %}
+
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ use_grid_smoothing_value }}"
+        sequence:
+          - service: input_number.set_value
+            target:
+              entity_id: !input smoothed_grid_helper
+            data:
+              value: "{{ calculated_smoothed_grid | round(1) }}"
+
+  - service: input_number.set_value
+    target:
+      entity_id: !input debug_delta_helper
+    data:
+      value: "{{ delta | round(1) }}"
+
+  - service: input_number.set_value
+    target:
+      entity_id: !input debug_effective_grid_helper
+    data:
+      value: "{{ effective_grid_power | round(1) }}"
+
+  - service: input_text.set_value
+    target:
+      entity_id: !input debug_reason_helper
+    data:
+      value: "{{ reason_text }}"
+
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ cooldown_active }}"
+        sequence:
+          - service: input_boolean.turn_on
+            target:
+              entity_id: !input debug_cooldown_helper
+      - conditions:
+          - condition: template
+            value_template: "{{ not cooldown_active }}"
+        sequence:
+          - service: input_boolean.turn_off
+            target:
+              entity_id: !input debug_cooldown_helper
+
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ enabled and not is_state(rs485_entity, 'on') }}"
+        sequence:
+          - service: switch.turn_on
+            target:
+              entity_id: !input rs485_switch_entity
+      - conditions:
+          - condition: template
+            value_template: "{{ not enabled and is_state(rs485_entity, 'on') }}"
+        sequence:
+          - service: switch.turn_off
+            target:
+              entity_id: !input rs485_switch_entity
+
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ enabled and states(strategy_entity) != 'manual' }}"
+        sequence:
+          - service: select.select_option
+            target:
+              entity_id: !input strategy_select_entity
+            data:
+              option: "manual"
+
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ enabled and states(action_entity) != device_force_mode }}"
+        sequence:
+          - service: select.select_option
+            target:
+              entity_id: !input action_select_entity
+            data:
+              option: "{{ device_force_mode }}"
+
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ states(mode_entity) != final_mode }}"
+        sequence:
+          - service: input_select.select_option
+            target:
+              entity_id: !input mode_helper
+            data:
+              option: "{{ final_mode }}"
+          - service: input_datetime.set_datetime
+            target:
+              entity_id: !input last_mode_change_helper
+            data:
+              datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ not enabled or not sensor_valid or final_mode == 'hold' }}"
+        sequence:
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ (current_charge - 0) | abs >= min_write_delta_value }}"
+                sequence:
+                  - service: number.set_value
+                    target:
+                      entity_id: !input charge_power_entity
+                    data:
+                      value: 0
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ (current_discharge - 0) | abs >= min_write_delta_value }}"
+                sequence:
+                  - service: number.set_value
+                    target:
+                      entity_id: !input discharge_power_entity
+                    data:
+                      value: 0
+
+      - conditions:
+          - condition: template
+            value_template: "{{ final_mode == 'charge' }}"
+        sequence:
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ (current_discharge - 0) | abs >= min_write_delta_value }}"
+                sequence:
+                  - service: number.set_value
+                    target:
+                      entity_id: !input discharge_power_entity
+                    data:
+                      value: 0
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ (current_charge - target_charge) | abs >= min_write_delta_value }}"
+                sequence:
+                  - service: number.set_value
+                    target:
+                      entity_id: !input charge_power_entity
+                    data:
+                      value: "{{ target_charge }}"
+
+      - conditions:
+          - condition: template
+            value_template: "{{ final_mode == 'discharge' }}"
+        sequence:
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ (current_charge - 0) | abs >= min_write_delta_value }}"
+                sequence:
+                  - service: number.set_value
+                    target:
+                      entity_id: !input charge_power_entity
+                    data:
+                      value: 0
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ (current_discharge - target_discharge) | abs >= min_write_delta_value }}"
+                sequence:
+                  - service: number.set_value
+                    target:
+                      entity_id: !input discharge_power_entity
+                    data:
+                      value: "{{ target_discharge }}"
+
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ (states(max_soc_target_entity) | float(0)) != (soc_max_charge_value | float(0)) }}"
+        sequence:
+          - service: number.set_value
+            target:
+              entity_id: !input max_soc_entity
+            data:
+              value: !input soc_max_charge
