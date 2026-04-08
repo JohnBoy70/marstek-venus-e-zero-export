@@ -1,26 +1,16 @@
 blueprint:
-  name: Marstek Venus E – Zero Export Controller V4.5
+  name: Marstek Venus E – Zero Export Controller V4.6
   description: >
-    Zero-export controller for Marstek Venus E with strategy-aware day/evening/night behaviour.
+    Zero-export controller for Marstek Venus E with centralized mapping layer.
 
-    Features:
-      - controls RS485 switch
-      - forces Marstek mode to "manual"
-      - sets action mode to "stop", "charge", "discharge"
-      - charge/discharge power control
-      - SOC protection
-      - mode cooldown
-      - hysteresis via separate start/stop thresholds
-      - optional PV-based evening discharge
-      - optional block charging without PV
-      - optional grid smoothing
-      - optional night profile
-      - debug helpers
-      - persistent manual mode enforcement
-      - strategy helper support:
-          - pv_priority_day
-          - evening_reserve
-          - night_supply
+    Internal logic uses canonical values:
+      - day / evening / night
+      - hold / charge / discharge
+
+    Device-specific and language-specific values are configured through blueprint inputs:
+      - strategy helper values
+      - manual mode value
+      - stop / charge / discharge option values
 
   domain: automation
   homeassistant:
@@ -36,8 +26,7 @@ blueprint:
     strategy_mode_helper:
       name: Strategy mode helper
       description: >
-        input_select helper with these exact options:
-        pv_priority_day, evening_reserve, night_supply
+        input_select helper for the current energy strategy.
       selector:
         entity:
           domain: input_select
@@ -154,6 +143,62 @@ blueprint:
       selector:
         entity:
           domain: input_number
+
+    strategy_day_value:
+      name: Strategy helper value for day
+      description: >
+        Example: Tag or pv_priority_day or day
+      default: "Tag"
+      selector:
+        text: {}
+
+    strategy_evening_value:
+      name: Strategy helper value for evening
+      description: >
+        Example: Abend or evening_reserve or evening
+      default: "Abend"
+      selector:
+        text: {}
+
+    strategy_night_value:
+      name: Strategy helper value for night
+      description: >
+        Example: Nacht or night_supply or night
+      default: "Nacht"
+      selector:
+        text: {}
+
+    device_manual_value:
+      name: Device value for manual strategy mode
+      description: >
+        Example: manual
+      default: "manual"
+      selector:
+        text: {}
+
+    device_stop_value:
+      name: Device value for hold / stop
+      description: >
+        Example: stop or Halt
+      default: "stop"
+      selector:
+        text: {}
+
+    device_charge_value:
+      name: Device value for charge
+      description: >
+        Example: charge or Laden
+      default: "charge"
+      selector:
+        text: {}
+
+    device_discharge_value:
+      name: Device value for discharge
+      description: >
+        Example: discharge or Entladen
+      default: "discharge"
+      selector:
+        text: {}
 
     use_grid_smoothing:
       name: Enable grid smoothing
@@ -367,8 +412,6 @@ blueprint:
 
     day_discharge_start_threshold:
       name: Day mode discharge start threshold
-      description: >
-        Used in pv_priority_day to avoid draining the battery too early.
       default: 300
       selector:
         number:
@@ -389,8 +432,6 @@ blueprint:
 
     evening_discharge_start_threshold:
       name: Evening reserve discharge start threshold
-      description: >
-        Higher threshold to protect battery for the night.
       default: 450
       selector:
         number:
@@ -431,8 +472,6 @@ blueprint:
 
     night_soc_min_discharge:
       name: Night supply minimum SOC
-      description: >
-        Optional higher reserve floor for night mode.
       default: 25
       selector:
         number:
@@ -483,6 +522,15 @@ action:
       smoothed_grid_entity: !input smoothed_grid_helper
       debug_effective_grid_entity: !input debug_effective_grid_helper
 
+      strategy_day_value_var: !input strategy_day_value
+      strategy_evening_value_var: !input strategy_evening_value
+      strategy_night_value_var: !input strategy_night_value
+
+      device_manual_value_var: !input device_manual_value
+      device_stop_value_var: !input device_stop_value
+      device_charge_value_var: !input device_charge_value
+      device_discharge_value_var: !input device_discharge_value
+
       use_grid_smoothing_value: !input use_grid_smoothing
       smoothing_factor_value: !input smoothing_factor_percent
       grid_bias_value: !input grid_bias
@@ -522,10 +570,18 @@ action:
       current_charge: "{{ states(charge_entity) | float(0) }}"
       current_discharge: "{{ states(discharge_entity) | float(0) }}"
       previous_smoothed_grid: "{{ states(smoothed_grid_entity) | float(0) }}"
+      raw_strategy_mode: "{{ states(strategy_mode_entity) }}"
 
       strategy_mode: >
-        {% set s = states(strategy_mode_entity) | lower %}
-        {{ s if s in ['pv_priority_day', 'evening_reserve', 'night_supply'] else 'pv_priority_day' }}
+        {% if raw_strategy_mode == strategy_day_value_var %}
+          day
+        {% elif raw_strategy_mode == strategy_evening_value_var %}
+          evening
+        {% elif raw_strategy_mode == strategy_night_value_var %}
+          night
+        {% else %}
+          day
+        {% endif %}
 
       current_mode: >
         {% set m = states(mode_entity) | lower %}
@@ -573,38 +629,38 @@ action:
       sun_is_down: "{{ states('sun.sun') == 'below_horizon' }}"
 
       active_discharge_start_threshold: >
-        {% if strategy_mode == 'pv_priority_day' %}
+        {% if strategy_mode == 'day' %}
           {{ day_discharge_start_value | float(0) }}
-        {% elif strategy_mode == 'evening_reserve' %}
+        {% elif strategy_mode == 'evening' %}
           {{ evening_discharge_start_value | float(0) }}
-        {% elif strategy_mode == 'night_supply' %}
+        {% elif strategy_mode == 'night' %}
           {{ night_discharge_start_value | float(0) }}
         {% else %}
           {{ discharge_start_base_value | float(0) }}
         {% endif %}
 
       active_discharge_stop_threshold: >
-        {% if strategy_mode == 'pv_priority_day' %}
+        {% if strategy_mode == 'day' %}
           {{ day_discharge_stop_value | float(0) }}
-        {% elif strategy_mode == 'evening_reserve' %}
+        {% elif strategy_mode == 'evening' %}
           {{ evening_discharge_stop_value | float(0) }}
-        {% elif strategy_mode == 'night_supply' %}
+        {% elif strategy_mode == 'night' %}
           {{ night_discharge_stop_value | float(0) }}
         {% else %}
           {{ discharge_stop_base_value | float(0) }}
         {% endif %}
 
       active_soc_min_discharge: >
-        {% if strategy_mode == 'night_supply' %}
+        {% if strategy_mode == 'night' %}
           {{ night_soc_min_value | float(0) }}
         {% else %}
           {{ soc_min_value | float(0) }}
         {% endif %}
 
       evening_ok_for_discharge: >
-        {% if strategy_mode == 'night_supply' %}
+        {% if strategy_mode == 'night' %}
           true
-        {% elif strategy_mode == 'evening_reserve' %}
+        {% elif strategy_mode == 'evening' %}
           false
         {% elif not evening_dependency_enabled %}
           true
@@ -628,7 +684,7 @@ action:
       night_profile_active: >
         {% if not enable_night_profile_value %}
           false
-        {% elif strategy_mode == 'night_supply' %}
+        {% elif strategy_mode == 'night' %}
           true
         {% elif night_profile_use_sun_value %}
           {{ sun_is_down }}
@@ -637,7 +693,7 @@ action:
         {% endif %}
 
       effective_max_discharge_power: >
-        {% if strategy_mode == 'night_supply' %}
+        {% if strategy_mode == 'night' %}
           {{ [base_max_discharge_power | float(0), night_profile_discharge_power_value | float(0)] | min }}
         {% elif night_profile_active %}
           {{ [base_max_discharge_power | float(0), night_profile_discharge_power_value | float(0)] | min }}
@@ -729,11 +785,11 @@ action:
 
       device_force_mode: >
         {% if final_mode == 'charge' %}
-          charge
+          {{ device_charge_value_var }}
         {% elif final_mode == 'discharge' %}
-          discharge
+          {{ device_discharge_value_var }}
         {% else %}
-          stop
+          {{ device_stop_value_var }}
         {% endif %}
 
       reason_text: >
@@ -751,11 +807,11 @@ action:
           charge_blocked_low_pv
         {% elif cooldown_active %}
           cooldown_active
-        {% elif strategy_mode == 'evening_reserve' and delta >= active_discharge_start_threshold %}
+        {% elif strategy_mode == 'evening' and delta >= active_discharge_start_threshold %}
           reserve_hold_for_night
         {% elif final_mode == 'charge' %}
           charging_due_to_export
-        {% elif final_mode == 'discharge' and strategy_mode == 'night_supply' %}
+        {% elif final_mode == 'discharge' and strategy_mode == 'night' %}
           night_supply_discharging
         {% elif final_mode == 'discharge' %}
           discharging_due_to_import
@@ -893,7 +949,7 @@ action:
                   target:
                     entity_id: !input strategy_select_entity
                   data:
-                    option: "manual"
+                    option: "{{ device_manual_value_var }}"
                 - delay:
                     milliseconds: 200
 
