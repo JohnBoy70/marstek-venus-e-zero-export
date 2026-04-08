@@ -36,21 +36,12 @@ automation:
           grid_power: "{{ states('sensor.meter_1_mt_1_16_7_0') | float(0) }}"
           soc: "{{ states('sensor.marstek_venus_modbus_batterie_ladezustand') | float(0) }}"
 
-          grid_bias: 20
           night_start_threshold: 60
           night_stop_threshold: 30
           night_soc_min: 25
-          night_max_discharge: 250
 
-          target_discharge: >
-            {% set p = (grid_power - grid_bias) | float(0) %}
-            {% if p < 0 %}
-              0
-            {% elif p > night_max_discharge %}
-              {{ night_max_discharge }}
-            {% else %}
-              {{ p | round(0) | int }}
-            {% endif %}
+          night_fixed_discharge: 300
+          night_max_discharge: 450
 
           should_discharge: >
             {{ soc > night_soc_min and grid_power >= night_start_threshold }}
@@ -71,7 +62,7 @@ automation:
               data:
                 option: "{{ device_manual_value }}"
             - delay:
-                milliseconds: 200
+                milliseconds: 300
 
       - choose:
           - conditions:
@@ -83,26 +74,49 @@ automation:
                   entity_id: select.marstek_venus_modbus_force_mode
                 data:
                   option: "{{ device_discharge_value }}"
+
+              - delay:
+                  milliseconds: 300
+
               - action: number.set_value
                 target:
                   entity_id: number.marstek_venus_modbus_ladeleistung_einstellen
                 data:
                   value: 0
+
+              - action: number.set_value
+                target:
+                  entity_id: number.marstek_venus_modbus_maximale_entladeleistung
+                data:
+                  value: "{{ night_max_discharge }}"
+
               - action: number.set_value
                 target:
                   entity_id: number.marstek_venus_modbus_entladeleistung_einstellen
                 data:
-                  value: "{{ target_discharge }}"
+                  value: "{{ night_fixed_discharge }}"
+
+              - delay:
+                  milliseconds: 500
+
+              - action: number.set_value
+                target:
+                  entity_id: number.marstek_venus_modbus_entladeleistung_einstellen
+                data:
+                  value: "{{ night_fixed_discharge }}"
+
               - action: input_select.select_option
                 target:
                   entity_id: input_select.marstek_zero_export_mode
                 data:
                   option: "discharge"
+
               - action: input_text.set_value
                 target:
                   entity_id: input_text.pv1_helper_reason
                 data:
                   value: "night | night_supply_discharging"
+
               - action: input_boolean.turn_off
                 target:
                   entity_id: input_boolean.marstek_zero_export_cooldown
@@ -116,26 +130,34 @@ automation:
                   entity_id: select.marstek_venus_modbus_force_mode
                 data:
                   option: "{{ device_stop_value }}"
+
+              - delay:
+                  milliseconds: 300
+
               - action: number.set_value
                 target:
                   entity_id: number.marstek_venus_modbus_ladeleistung_einstellen
                 data:
                   value: 0
+
               - action: number.set_value
                 target:
                   entity_id: number.marstek_venus_modbus_entladeleistung_einstellen
                 data:
                   value: 0
+
               - action: input_select.select_option
                 target:
                   entity_id: input_select.marstek_zero_export_mode
                 data:
                   option: "hold"
+
               - action: input_text.set_value
                 target:
                   entity_id: input_text.pv1_helper_reason
                 data:
                   value: "night | night_supply_hold"
+
               - action: input_boolean.turn_off
                 target:
                   entity_id: input_boolean.marstek_zero_export_cooldown
