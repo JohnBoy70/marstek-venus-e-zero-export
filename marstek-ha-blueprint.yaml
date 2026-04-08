@@ -848,14 +848,19 @@ action:
           - condition: template
             value_template: "{{ enabled }}"
         sequence:
-          - service: select.select_option
-            target:
-              entity_id: !input strategy_select_entity
-            data:
-              option: "manual"
+          - repeat:
+              count: 2
+              sequence:
+                - service: select.select_option
+                  target:
+                    entity_id: !input strategy_select_entity
+                  data:
+                    option: "manual"
+                - delay:
+                    milliseconds: 200
 
-  - delay:
-      milliseconds: 300
+- delay:
+    milliseconds: 300
 
   - choose:
       - conditions:
