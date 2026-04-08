@@ -1,16 +1,19 @@
 blueprint:
-  name: Marstek Venus E – Zero Export Controller V4.6
+  name: Marstek Venus E – Zero Export Controller V4.7
   description: >
-    Zero-export controller for Marstek Venus E with centralized mapping layer.
+    Main controller for day/evening operation.
+    Night mode is intentionally excluded and must be handled by the separate
+    night controller automation.
 
-    Internal logic uses canonical values:
-      - day / evening / night
-      - hold / charge / discharge
+    Internal canonical values:
+      - day
+      - evening
+      - night
+      - hold
+      - charge
+      - discharge
 
-    Device-specific and language-specific values are configured through blueprint inputs:
-      - strategy helper values
-      - manual mode value
-      - stop / charge / discharge option values
+    External/helper/device values are mapped centrally through inputs.
 
   domain: automation
   homeassistant:
@@ -25,16 +28,13 @@ blueprint:
 
     strategy_mode_helper:
       name: Strategy mode helper
-      description: >
-        input_select helper for the current energy strategy.
       selector:
         entity:
           domain: input_select
 
     grid_power_sensor:
       name: Raw grid power sensor
-      description: >
-        Positive = grid import, negative = grid export.
+      description: Positive = grid import, negative = grid export
       selector:
         entity:
           domain: sensor
@@ -101,9 +101,7 @@ blueprint:
 
     mode_helper:
       name: Debug helper - final mode
-      description: >
-        input_select helper with exact options:
-        hold, charge, discharge
+      description: input_select with options hold, charge, discharge
       selector:
         entity:
           domain: input_select
@@ -146,56 +144,42 @@ blueprint:
 
     strategy_day_value:
       name: Strategy helper value for day
-      description: >
-        Example: Tag or pv_priority_day or day
       default: "Tag"
       selector:
         text: {}
 
     strategy_evening_value:
       name: Strategy helper value for evening
-      description: >
-        Example: Abend or evening_reserve or evening
       default: "Abend"
       selector:
         text: {}
 
     strategy_night_value:
       name: Strategy helper value for night
-      description: >
-        Example: Nacht or night_supply or night
       default: "Nacht"
       selector:
         text: {}
 
     device_manual_value:
-      name: Device value for manual strategy mode
-      description: >
-        Example: manual
+      name: Device value for manual mode
       default: "manual"
       selector:
         text: {}
 
     device_stop_value:
-      name: Device value for hold / stop
-      description: >
-        Example: stop or Halt
+      name: Device value for stop / hold
       default: "stop"
       selector:
         text: {}
 
     device_charge_value:
       name: Device value for charge
-      description: >
-        Example: charge or Laden
       default: "charge"
       selector:
         text: {}
 
     device_discharge_value:
       name: Device value for discharge
-      description: >
-        Example: discharge or Entladen
       default: "discharge"
       selector:
         text: {}
@@ -256,24 +240,44 @@ blueprint:
           step: 1
           unit_of_measurement: W
 
-    discharge_start_threshold:
-      name: Base discharge start threshold
-      default: 80
+    day_discharge_start_threshold:
+      name: Day discharge start threshold
+      default: 300
       selector:
         number:
           min: 0
-          max: 1000
-          step: 1
+          max: 1500
+          step: 10
           unit_of_measurement: W
 
-    discharge_stop_threshold:
-      name: Base discharge stop threshold
-      default: 30
+    day_discharge_stop_threshold:
+      name: Day discharge stop threshold
+      default: 150
       selector:
         number:
           min: 0
-          max: 1000
-          step: 1
+          max: 1500
+          step: 10
+          unit_of_measurement: W
+
+    evening_discharge_start_threshold:
+      name: Evening reserve discharge start threshold
+      default: 450
+      selector:
+        number:
+          min: 0
+          max: 1500
+          step: 10
+          unit_of_measurement: W
+
+    evening_discharge_stop_threshold:
+      name: Evening reserve discharge stop threshold
+      default: 200
+      selector:
+        number:
+          min: 0
+          max: 1500
+          step: 10
           unit_of_measurement: W
 
     soc_min_discharge:
@@ -338,29 +342,13 @@ blueprint:
 
     mode_cooldown_seconds:
       name: Mode cooldown
-      default: 5
+      default: 0
       selector:
         number:
           min: 0
           max: 600
           step: 1
           unit_of_measurement: s
-
-    enable_evening_discharge_dependency:
-      name: Enable PV dependency for evening discharge
-      default: true
-      selector:
-        boolean: {}
-
-    pv_evening_threshold:
-      name: PV evening threshold
-      default: 80
-      selector:
-        number:
-          min: 0
-          max: 1000
-          step: 10
-          unit_of_measurement: W
 
     block_charge_without_pv:
       name: Block charging when PV is too low
@@ -377,108 +365,6 @@ blueprint:
           max: 3000
           step: 10
           unit_of_measurement: W
-
-    enable_night_profile:
-      name: Enable night profile
-      default: true
-      selector:
-        boolean: {}
-
-    night_profile_discharge_power:
-      name: Night profile max discharge power
-      default: 300
-      selector:
-        number:
-          min: 0
-          max: 3000
-          step: 10
-          unit_of_measurement: W
-
-    night_profile_use_sun:
-      name: Night profile based on sun
-      default: true
-      selector:
-        boolean: {}
-
-    night_profile_pv_threshold:
-      name: Night profile PV threshold
-      default: 80
-      selector:
-        number:
-          min: 0
-          max: 1000
-          step: 10
-          unit_of_measurement: W
-
-    day_discharge_start_threshold:
-      name: Day mode discharge start threshold
-      default: 300
-      selector:
-        number:
-          min: 0
-          max: 1500
-          step: 10
-          unit_of_measurement: W
-
-    day_discharge_stop_threshold:
-      name: Day mode discharge stop threshold
-      default: 150
-      selector:
-        number:
-          min: 0
-          max: 1500
-          step: 10
-          unit_of_measurement: W
-
-    evening_discharge_start_threshold:
-      name: Evening reserve discharge start threshold
-      default: 450
-      selector:
-        number:
-          min: 0
-          max: 1500
-          step: 10
-          unit_of_measurement: W
-
-    evening_discharge_stop_threshold:
-      name: Evening reserve discharge stop threshold
-      default: 200
-      selector:
-        number:
-          min: 0
-          max: 1500
-          step: 10
-          unit_of_measurement: W
-
-    night_discharge_start_threshold:
-      name: Night supply discharge start threshold
-      default: 60
-      selector:
-        number:
-          min: 0
-          max: 1000
-          step: 10
-          unit_of_measurement: W
-
-    night_discharge_stop_threshold:
-      name: Night supply discharge stop threshold
-      default: 30
-      selector:
-        number:
-          min: 0
-          max: 1000
-          step: 10
-          unit_of_measurement: W
-
-    night_soc_min_discharge:
-      name: Night supply minimum SOC
-      default: 25
-      selector:
-        number:
-          min: 0
-          max: 80
-          step: 1
-          unit_of_measurement: "%"
 
 mode: restart
 max_exceeded: silent
@@ -537,8 +423,10 @@ action:
       deadband_value: !input deadband
       charge_start_value: !input charge_start_threshold
       charge_stop_value: !input charge_stop_threshold
-      discharge_start_base_value: !input discharge_start_threshold
-      discharge_stop_base_value: !input discharge_stop_threshold
+      day_discharge_start_value: !input day_discharge_start_threshold
+      day_discharge_stop_value: !input day_discharge_stop_threshold
+      evening_discharge_start_value: !input evening_discharge_start_threshold
+      evening_discharge_stop_value: !input evening_discharge_stop_threshold
       soc_min_value: !input soc_min_discharge
       soc_max_charge_value: !input soc_max_charge
       fallback_max_charge_value: !input fallback_max_charge_power
@@ -546,22 +434,8 @@ action:
       ramp_limit_value: !input ramp_limit
       min_write_delta_value: !input min_write_delta
       mode_cooldown_value: !input mode_cooldown_seconds
-      evening_dependency_enabled: !input enable_evening_discharge_dependency
-      pv_evening_threshold_value: !input pv_evening_threshold
       block_charge_without_pv_value: !input block_charge_without_pv
       minimum_pv_for_charge_value: !input minimum_pv_for_charge
-      enable_night_profile_value: !input enable_night_profile
-      night_profile_discharge_power_value: !input night_profile_discharge_power
-      night_profile_use_sun_value: !input night_profile_use_sun
-      night_profile_pv_threshold_value: !input night_profile_pv_threshold
-
-      day_discharge_start_value: !input day_discharge_start_threshold
-      day_discharge_stop_value: !input day_discharge_stop_threshold
-      evening_discharge_start_value: !input evening_discharge_start_threshold
-      evening_discharge_stop_value: !input evening_discharge_stop_threshold
-      night_discharge_start_value: !input night_discharge_start_threshold
-      night_discharge_stop_value: !input night_discharge_stop_threshold
-      night_soc_min_value: !input night_soc_min_discharge
 
       enabled: "{{ is_state(enabled_entity_var, 'on') }}"
       raw_grid_power: "{{ states(grid_entity) | float(0) }}"
@@ -583,6 +457,8 @@ action:
           day
         {% endif %}
 
+      bypass_main_control: "{{ strategy_mode == 'night' }}"
+
       current_mode: >
         {% set m = states(mode_entity) | lower %}
         {{ m if m in ['hold', 'charge', 'discharge'] else 'hold' }}
@@ -595,7 +471,7 @@ action:
           {{ v | float(0) }}
         {% endif %}
 
-      base_max_discharge_power: >
+      max_discharge_power: >
         {% set v = states(max_discharge_entity) %}
         {% if v in ['unknown', 'unavailable', 'none', ''] %}
           {{ fallback_max_discharge_value | float(0) }}
@@ -626,50 +502,19 @@ action:
 
       delta: "{{ (effective_grid_power | float(0)) - (grid_bias_value | float(0)) }}"
       abs_delta: "{{ ((effective_grid_power | float(0)) - (grid_bias_value | float(0))) | abs }}"
-      sun_is_down: "{{ states('sun.sun') == 'below_horizon' }}"
 
       active_discharge_start_threshold: >
-        {% if strategy_mode == 'day' %}
-          {{ day_discharge_start_value | float(0) }}
-        {% elif strategy_mode == 'evening' %}
+        {% if strategy_mode == 'evening' %}
           {{ evening_discharge_start_value | float(0) }}
-        {% elif strategy_mode == 'night' %}
-          {{ night_discharge_start_value | float(0) }}
         {% else %}
-          {{ discharge_start_base_value | float(0) }}
+          {{ day_discharge_start_value | float(0) }}
         {% endif %}
 
       active_discharge_stop_threshold: >
-        {% if strategy_mode == 'day' %}
-          {{ day_discharge_stop_value | float(0) }}
-        {% elif strategy_mode == 'evening' %}
+        {% if strategy_mode == 'evening' %}
           {{ evening_discharge_stop_value | float(0) }}
-        {% elif strategy_mode == 'night' %}
-          {{ night_discharge_stop_value | float(0) }}
         {% else %}
-          {{ discharge_stop_base_value | float(0) }}
-        {% endif %}
-
-      active_soc_min_discharge: >
-        {% if strategy_mode == 'night' %}
-          {{ night_soc_min_value | float(0) }}
-        {% else %}
-          {{ soc_min_value | float(0) }}
-        {% endif %}
-
-      evening_ok_for_discharge: >
-        {% if strategy_mode == 'night' %}
-          true
-        {% elif strategy_mode == 'evening' %}
-          false
-        {% elif not evening_dependency_enabled %}
-          true
-        {% elif sun_is_down %}
-          true
-        {% elif pv_power <= pv_evening_threshold_value %}
-          true
-        {% else %}
-          false
+          {{ day_discharge_stop_value | float(0) }}
         {% endif %}
 
       charge_allowed: >
@@ -681,32 +526,14 @@ action:
           false
         {% endif %}
 
-      night_profile_active: >
-        {% if not enable_night_profile_value %}
-          false
-        {% elif strategy_mode == 'night' %}
-          true
-        {% elif night_profile_use_sun_value %}
-          {{ sun_is_down }}
-        {% else %}
-          {{ pv_power <= night_profile_pv_threshold_value }}
-        {% endif %}
-
-      effective_max_discharge_power: >
-        {% if strategy_mode == 'night' %}
-          {{ [base_max_discharge_power | float(0), night_profile_discharge_power_value | float(0)] | min }}
-        {% elif night_profile_active %}
-          {{ [base_max_discharge_power | float(0), night_profile_discharge_power_value | float(0)] | min }}
-        {% else %}
-          {{ base_max_discharge_power | float(0) }}
-        {% endif %}
-
       safety_hold: >
         {% if not enabled %}
           true
         {% elif not sensor_valid %}
           true
-        {% elif soc <= active_soc_min_discharge and delta > 0 %}
+        {% elif bypass_main_control %}
+          true
+        {% elif soc <= soc_min_value and delta > 0 %}
           true
         {% elif soc >= soc_max_charge_value and delta < 0 %}
           true
@@ -726,14 +553,16 @@ action:
           {% endif %}
 
         {% elif current_mode == 'discharge' %}
-          {% if delta >= active_discharge_stop_threshold and evening_ok_for_discharge %}
+          {% if delta >= active_discharge_stop_threshold and strategy_mode != 'evening' %}
             discharge
           {% else %}
             hold
           {% endif %}
 
         {% else %}
-          {% if delta >= active_discharge_start_threshold and evening_ok_for_discharge %}
+          {% if strategy_mode == 'evening' %}
+            hold
+          {% elif delta >= active_discharge_start_threshold %}
             discharge
           {% elif delta <= (0 - charge_start_value) and charge_allowed %}
             charge
@@ -769,7 +598,9 @@ action:
         {% endif %}
 
       final_mode: >
-        {% if safety_hold %}
+        {% if bypass_main_control %}
+          hold
+        {% elif safety_hold %}
           hold
         {% elif desired_mode == current_mode %}
           {{ current_mode }}
@@ -795,11 +626,13 @@ action:
       reason_text: >
         {% if not enabled %}
           disabled
+        {% elif bypass_main_control %}
+          night_external_control
         {% elif states(grid_entity) in ['unknown','unavailable','none',''] %}
           grid_invalid
         {% elif states(soc_entity) in ['unknown','unavailable','none',''] %}
           soc_invalid
-        {% elif soc <= active_soc_min_discharge and delta > 0 %}
+        {% elif soc <= soc_min_value and delta > 0 %}
           soc_min_block_discharge
         {% elif soc >= soc_max_charge_value and delta < 0 %}
           soc_max_block_charge
@@ -807,12 +640,10 @@ action:
           charge_blocked_low_pv
         {% elif cooldown_active %}
           cooldown_active
-        {% elif strategy_mode == 'evening' and delta >= active_discharge_start_threshold %}
+        {% elif strategy_mode == 'evening' %}
           reserve_hold_for_night
         {% elif final_mode == 'charge' %}
           charging_due_to_export
-        {% elif final_mode == 'discharge' and strategy_mode == 'night' %}
-          night_supply_discharging
         {% elif final_mode == 'discharge' %}
           discharging_due_to_import
         {% elif abs_delta <= deadband_value %}
@@ -834,7 +665,7 @@ action:
         {% if final_mode == 'charge' %}
           {{ [unclamped_target_power | float(0), max_charge_power | float(0)] | min }}
         {% elif final_mode == 'discharge' %}
-          {{ [unclamped_target_power | float(0), effective_max_discharge_power | float(0)] | min }}
+          {{ [unclamped_target_power | float(0), max_discharge_power | float(0)] | min }}
         {% else %}
           0
         {% endif %}
@@ -871,7 +702,7 @@ action:
 
       target_discharge: >
         {% if final_mode == 'discharge' %}
-          {{ [ramped_target_power | float(0), effective_max_discharge_power | float(0)] | min | round(0) | int }}
+          {{ [ramped_target_power | float(0), max_discharge_power | float(0)] | min | round(0) | int }}
         {% else %}
           0
         {% endif %}
@@ -924,52 +755,6 @@ action:
   - choose:
       - conditions:
           - condition: template
-            value_template: "{{ enabled and not is_state(rs485_entity, 'on') }}"
-        sequence:
-          - service: switch.turn_on
-            target:
-              entity_id: !input rs485_switch_entity
-      - conditions:
-          - condition: template
-            value_template: "{{ not enabled and is_state(rs485_entity, 'on') }}"
-        sequence:
-          - service: switch.turn_off
-            target:
-              entity_id: !input rs485_switch_entity
-
-  - choose:
-      - conditions:
-          - condition: template
-            value_template: "{{ enabled }}"
-        sequence:
-          - repeat:
-              count: 2
-              sequence:
-                - service: select.select_option
-                  target:
-                    entity_id: !input strategy_select_entity
-                  data:
-                    option: "{{ device_manual_value_var }}"
-                - delay:
-                    milliseconds: 200
-
-  - delay:
-      milliseconds: 300
-
-  - choose:
-      - conditions:
-          - condition: template
-            value_template: "{{ enabled and states(action_entity) != device_force_mode }}"
-        sequence:
-          - service: select.select_option
-            target:
-              entity_id: !input action_select_entity
-            data:
-              option: "{{ device_force_mode }}"
-
-  - choose:
-      - conditions:
-          - condition: template
             value_template: "{{ states(mode_entity) != final_mode }}"
         sequence:
           - service: input_select.select_option
@@ -986,7 +771,58 @@ action:
   - choose:
       - conditions:
           - condition: template
-            value_template: "{{ not enabled or not sensor_valid or final_mode == 'hold' }}"
+            value_template: "{{ enabled and not bypass_main_control and not is_state(rs485_entity, 'on') }}"
+        sequence:
+          - service: switch.turn_on
+            target:
+              entity_id: !input rs485_switch_entity
+      - conditions:
+          - condition: template
+            value_template: "{{ not enabled and is_state(rs485_entity, 'on') }}"
+        sequence:
+          - service: switch.turn_off
+            target:
+              entity_id: !input rs485_switch_entity
+
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ enabled and not bypass_main_control }}"
+        sequence:
+          - repeat:
+              count: 2
+              sequence:
+                - service: select.select_option
+                  target:
+                    entity_id: !input strategy_select_entity
+                  data:
+                    option: "{{ device_manual_value_var }}"
+                - delay:
+                    milliseconds: 200
+
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ enabled and not bypass_main_control }}"
+        sequence:
+          - delay:
+              milliseconds: 300
+
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ enabled and not bypass_main_control and states(action_entity) != device_force_mode }}"
+        sequence:
+          - service: select.select_option
+            target:
+              entity_id: !input action_select_entity
+            data:
+              option: "{{ device_force_mode }}"
+
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ enabled and not bypass_main_control and final_mode == 'hold' }}"
         sequence:
           - choose:
               - conditions:
@@ -1011,7 +847,7 @@ action:
 
       - conditions:
           - condition: template
-            value_template: "{{ final_mode == 'charge' }}"
+            value_template: "{{ enabled and not bypass_main_control and final_mode == 'charge' }}"
         sequence:
           - choose:
               - conditions:
@@ -1036,7 +872,7 @@ action:
 
       - conditions:
           - condition: template
-            value_template: "{{ final_mode == 'discharge' }}"
+            value_template: "{{ enabled and not bypass_main_control and final_mode == 'discharge' }}"
         sequence:
           - choose:
               - conditions:
@@ -1062,7 +898,7 @@ action:
   - choose:
       - conditions:
           - condition: template
-            value_template: "{{ (states(max_soc_target_entity) | float(0)) != (soc_max_charge_value | float(0)) }}"
+            value_template: "{{ enabled and not bypass_main_control and (states(max_soc_target_entity) | float(0)) != (soc_max_charge_value | float(0)) }}"
         sequence:
           - service: number.set_value
             target:
