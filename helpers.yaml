@@ -16,6 +16,15 @@ input_select:
       - discharge
     icon: mdi:battery-sync
 
+  pv1_strategy:
+    name: PV1 Strategy
+    options:
+      - Tag
+      - Abend
+      - Nacht
+    initial: Tag
+    icon: mdi:sun-clock
+
 input_datetime:
   marstek_zero_export_last_mode_change:
     name: Marstek Zero Export Last Mode Change
