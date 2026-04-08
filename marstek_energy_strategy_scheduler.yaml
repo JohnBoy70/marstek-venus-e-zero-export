@@ -1,0 +1,53 @@
+automation:
+  - alias: Marstek Energy Strategy Scheduler
+    id: marstek_energy_strategy_scheduler
+    mode: single
+    trigger:
+      - platform: time_pattern
+        minutes: "/5"
+      - platform: state
+        entity_id:
+          - sun.sun
+          - sensor.pv_gesamtleistung_balkon
+      - platform: homeassistant
+        event: start
+
+    action:
+      - variables:
+          strategy_entity: input_select.pv1_strategy
+          pv_entity: sensor.pv_gesamtleistung_balkon
+
+          strategy_day_value: "Tag"
+          strategy_evening_value: "Abend"
+          strategy_night_value: "Nacht"
+
+          pv_power: "{{ states(pv_entity) | float(0) }}"
+          sun_is_down: "{{ states('sun.sun') == 'below_horizon' }}"
+          current_time_minutes: "{{ now().hour * 60 + now().minute }}"
+
+          evening_start_minutes: "{{ 17 * 60 }}"
+          night_start_minutes: "{{ 21 * 60 }}"
+
+          target_strategy: >
+            {% if sun_is_down or current_time_minutes >= night_start_minutes %}
+              {{ strategy_night_value }}
+            {% elif current_time_minutes >= evening_start_minutes and pv_power <= 400 %}
+              {{ strategy_evening_value }}
+            {% elif pv_power > 80 %}
+              {{ strategy_day_value }}
+            {% elif current_time_minutes >= evening_start_minutes %}
+              {{ strategy_evening_value }}
+            {% else %}
+              {{ strategy_day_value }}
+            {% endif %}
+
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ states(strategy_entity) != target_strategy }}"
+            sequence:
+              - service: input_select.select_option
+                target:
+                  entity_id: input_select.pv1_strategy
+                data:
+                  option: "{{ target_strategy }}"
