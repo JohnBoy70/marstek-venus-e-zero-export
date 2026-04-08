@@ -1,11 +1,11 @@
 blueprint:
-  name: Marstek Venus E – Zero Export Controller V4.3
+  name: Marstek Venus E – Zero Export Controller V4.4
   description: >
     Zero-export controller for Marstek Venus E with real device control.
 
     Features:
       - controls RS485 switch
-      - sets Marstek mode to "manual"
+      - forces Marstek mode to "manual"
       - sets action mode to "stop", "charge", "discharge"
       - charge/discharge power control
       - SOC protection
@@ -19,6 +19,8 @@ blueprint:
       - improved trigger responsiveness
       - improved night-profile logic
       - Marstek option mapping for manual / stop / charge / discharge
+      - persistent manual mode enforcement
+      - delay between strategy and force-mode write
 
   domain: automation
   homeassistant:
@@ -844,13 +846,16 @@ action:
   - choose:
       - conditions:
           - condition: template
-            value_template: "{{ enabled and states(strategy_entity) != 'manual' }}"
+            value_template: "{{ enabled }}"
         sequence:
           - service: select.select_option
             target:
               entity_id: !input strategy_select_entity
             data:
               option: "manual"
+
+  - delay:
+      milliseconds: 300
 
   - choose:
       - conditions:
