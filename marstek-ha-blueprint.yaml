@@ -686,9 +686,9 @@ action:
 
       device_force_mode: >
         {% if final_mode == 'charge' %}
-          Laden
+          charge
         {% elif final_mode == 'discharge' %}
-          Entladen
+          discharge
         {% else %}
           stop
         {% endif %}
@@ -829,6 +829,14 @@ action:
           - condition: template
             value_template: "{{ enabled and not is_state(rs485_entity, 'on') }}"
         sequence:
+          - service: switch.turn_off
+            target:
+              entity_id: !input rs485_switch_entity
+
+      - conditions:
+          - condition: template
+            value_template: "{{ not enabled and is_state(rs485_entity, 'on') }}"
+        sequence:
           - service: switch.turn_on
             target:
               entity_id: !input rs485_switch_entity
@@ -836,13 +844,13 @@ action:
   - choose:
       - conditions:
           - condition: template
-            value_template: "{{ enabled and states(strategy_entity) != 'Manuell' }}"
+            value_template: "{{ enabled and states(strategy_entity) != 'manual' }}"
         sequence:
           - service: select.select_option
             target:
               entity_id: !input strategy_select_entity
             data:
-              option: "Manuell"
+              option: "manual"
 
   - choose:
       - conditions:
