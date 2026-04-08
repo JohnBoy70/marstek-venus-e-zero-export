@@ -1,12 +1,12 @@
 blueprint:
-  name: Marstek Venus E – Zero Export Controller V4.2
+  name: Marstek Venus E – Zero Export Controller V4.3
   description: >
     Zero-export controller for Marstek Venus E with real device control.
 
     Features:
       - controls RS485 switch
-      - sets Marstek mode to "Manuell"
-      - sets action mode to "Halt", "Laden", "Entladen"
+      - sets Marstek mode to "manual"
+      - sets action mode to "stop", "charge", "discharge"
       - charge/discharge power control
       - SOC protection
       - mode cooldown
@@ -18,6 +18,7 @@ blueprint:
       - debug helpers
       - improved trigger responsiveness
       - improved night-profile logic
+      - Marstek option mapping for manual / stop / charge / discharge
 
   domain: automation
   homeassistant:
@@ -69,7 +70,7 @@ blueprint:
       name: Marstek strategy select
       description: >
         Marstek operating mode selector.
-        The automation sets this to "Manuell" so Home Assistant can control
+        The automation sets this to "manual" so Home Assistant can control
         charge and discharge behaviour.
       selector:
         entity:
@@ -78,7 +79,7 @@ blueprint:
     action_select_entity:
       name: Marstek force mode select
       description: >
-        Select entity with options Halt / Laden / Entladen.
+        Select entity with options stop / charge / discharge.
         The automation writes the desired operating action here.
       selector:
         entity:
@@ -829,15 +830,14 @@ action:
           - condition: template
             value_template: "{{ enabled and not is_state(rs485_entity, 'on') }}"
         sequence:
-          - service: switch.turn_off
+          - service: switch.turn_on
             target:
               entity_id: !input rs485_switch_entity
-
       - conditions:
           - condition: template
             value_template: "{{ not enabled and is_state(rs485_entity, 'on') }}"
         sequence:
-          - service: switch.turn_on
+          - service: switch.turn_off
             target:
               entity_id: !input rs485_switch_entity
 
